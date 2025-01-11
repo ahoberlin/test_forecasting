@@ -1,0 +1,12 @@
+{
+    "forecast_horizon": 365,
+    "api_keys": {
+        "openweathermap": "c05c72be1bc545a1eb86760266c1eadf",
+        "google_maps": "Ihr_API_Schl\u00fcssel",
+        "ticketmaster": "Ihr_API_Schl\u00fcssel"
+    },
+    "location": {
+        "latitude": 52.52,
+        "longitude": 13.405
+    }
+}
