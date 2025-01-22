@@ -6,6 +6,7 @@ from prophet import Prophet
 import requests
 import streamlit as st
 from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
 
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
@@ -142,7 +143,15 @@ if data is not None and st.button("Forecast starten"):
 
         # Plot Forecast
         st.subheader("Forecast-Visualisierung")
-        fig = model.plot(forecast)
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(forecast['ds'], forecast['yhat'], label="Vorhersage")
+        if 'y' in data.columns:
+            ax.plot(data['ds'], data['y'], label="Tatsächliche Werte")
+        ax.fill_between(forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'], alpha=0.3, label="Unsicherheitsintervall")
+        ax.set_title("Forecast mit Meta-Daten")
+        ax.set_xlabel("Datum")
+        ax.set_ylabel("Wert")
+        ax.legend()
         st.pyplot(fig)  # Haupt-Plot anzeigen
 
         # Zusätzliche Komponenten visualisieren
