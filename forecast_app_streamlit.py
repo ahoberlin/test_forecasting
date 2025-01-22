@@ -136,23 +136,18 @@ if data is not None and st.button("Forecast starten"):
         for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
             if col in data.columns:
                 future[col] = data[col].iloc[-forecast_horizon:].values
-        forecast = model.predict(future)
-
+        forecast = model.predict(future)  # forecast wird hier definiert
+        st.session_state['forecast'] = forecast  # Forecast im Session State speichern
         st.success("Forecast erfolgreich erstellt!")
-        st.write(forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].head())
-
-        # Plot anzeigen
-        st.line_chart({
-            "Vorhersage": forecast.set_index("ds")["yhat"],
-            "Unsicherheitsintervall (obere Grenze)": forecast.set_index("ds")["yhat_upper"],
-            "Unsicherheitsintervall (untere Grenze)": forecast.set_index("ds")["yhat_lower"]
-        })
     except Exception as e:
         st.error(f"Fehler beim Forecast: {e}")
 
 # Ergebnisse speichern
-if data is not None and st.button("Ergebnisse speichern"):
+if "forecast" in st.session_state:
+    forecast = st.session_state["forecast"]
     save_path = st.text_input("Pfad für die gespeicherte Datei", "forecast_results.csv")
-    if save_path:
+    if save_path and st.button("Ergebnisse speichern"):
         forecast.to_csv(save_path, index=False)
         st.success("Ergebnisse erfolgreich gespeichert!")
+else:
+    st.warning("Bitte führen Sie zuerst den Forecast durch.")
