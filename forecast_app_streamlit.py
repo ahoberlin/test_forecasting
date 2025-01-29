@@ -88,20 +88,35 @@ if uploaded_file:
         st.error("❌ Die Datei muss 'ds' (Datum) und 'y' (Zielvariable) enthalten.")
     else:
         data['ds'] = pd.to_datetime(data['ds'])
-        st.write("✅ Daten geladen:", data.head())
+        st.session_state['data'] = data  # Sicherstellen, dass die Daten gespeichert werden
+        st.write("✅ Daten erfolgreich geladen:", data.head())
 
-# requirements.txt
-dependencies = """
-pandas
-numpy
-requests
-streamlit
-prophet
-plotly
-scikit-learn
-joblib
-pystan==2.19.1.1
-cmdstanpy
-"""
-with open("requirements.txt", "w") as f:
-    f.write(dependencies)
+if 'data' in st.session_state and st.session_state['data'] is not None:
+    if st.button("🚀 Forecast starten"):
+        with st.spinner("📡 Modell wird trainiert..."):
+            model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
+            future = model.make_future_dataframe(periods=forecast_horizon)
+            for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
+                if col in st.session_state['data'].columns:
+                    future[col] = st.session_state['data'][col].iloc[-forecast_horizon:].values
+            forecast = model.predict(future)
+            st.session_state['forecast'] = forecast
+            st.success("✅ Forecast erfolgreich erstellt!")
+            
+            # Forecast visualisieren
+            st.subheader("📉 Forecast-Visualisierung")
+            fig = px.line(forecast, x='ds', y='yhat', title="🔮 Prognose")
+            fig.add_scatter(x=st.session_state['data']['ds'], y=st.session_state['data']['y'], mode='lines', name="Tatsächliche Werte")
+            st.plotly_chart(fig)
+            
+            # Performance-Metriken
+            if 'y' in st.session_state['data'].columns:
+                mae = mean_absolute_error(st.session_state['data']['y'], forecast['yhat'][:len(st.session_state['data'])])
+                mse = mean_squared_error(st.session_state['data']['y'], forecast['yhat'][:len(st.session_state['data'])])
+                r2 = r2_score(st.session_state['data']['y'], forecast['yhat'][:len(st.session_state['data'])])
+                st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
+            
+            # Export-Funktion
+            if st.button("💾 Export als CSV"):
+                forecast.to_csv("forecast_results.csv", index=False)
+                st.success("✅ CSV exportiert!")
