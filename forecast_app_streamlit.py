@@ -90,45 +90,7 @@ if uploaded_file:
         data['ds'] = pd.to_datetime(data['ds'])
         st.write("✅ Daten geladen:", data.head())
 
-# Meta-Daten abrufen
-if data is not None and st.button("🛠 Meta-Daten hinzufügen"):
-    start_date, end_date = data['ds'].min(), data['ds'].max()
-    weather = fetch_weather_data(start_date, end_date, latitude, longitude, api_key)
-    traffic = fetch_traffic_data(start_date, end_date)
-    events = fetch_event_data(start_date, end_date)
-    
-    meta_data = weather.merge(traffic, on="ds", how="outer").merge(events, on="ds", how="outer")
-    data = data.merge(meta_data, on="ds", how="left")
-    st.success("✅ Meta-Daten hinzugefügt!")
-    st.write(data.head())
-
-# Forecast starten
-if data is not None and st.button("🚀 Forecast starten"):
-    with st.spinner("📡 Modell wird trainiert..."):
-        model = train_model(data, changepoint_prior_scale, seasonality_prior_scale)
-        future = model.make_future_dataframe(periods=forecast_horizon)
-        for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
-            if col in data.columns:
-                future[col] = data[col].iloc[-forecast_horizon:].values
-        forecast = model.predict(future)
-        st.session_state['forecast'] = forecast
-        st.success("✅ Forecast erfolgreich erstellt!")
-    
-    # Forecast visualisieren
-    st.subheader("📉 Forecast-Visualisierung")
-    fig = px.line(forecast, x='ds', y='yhat', title="🔮 Prognose")
-    if 'y' in data.columns:
-        fig.add_scatter(x=data['ds'], y=data['y'], mode='lines', name="Tatsächliche Werte")
-    st.plotly_chart(fig)
-
-    # Performance-Metriken
-    if 'y' in data.columns:
-        mae = mean_absolute_error(data['y'], forecast['yhat'][:len(data)])
-        mse = mean_squared_error(data['y'], forecast['yhat'][:len(data)])
-        r2 = r2_score(data['y'], forecast['yhat'][:len(data)])
-        st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
-
 # requirements.txt
-dependencies = """\npandas\nnumpy\nrequests\nstreamlit\nprophet\nplotly\nsklearn\njoblib\n"""
+dependencies = """\npandas\nnumpy\nrequests\nstreamlit\nprophet\nplotly\nscikit-learn\njoblib\npystan==2.19.1.1\ncmdstanpy\"""
 with open("requirements.txt", "w") as f:
     f.write(dependencies)
