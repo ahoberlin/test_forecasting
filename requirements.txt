@@ -5,3 +5,7 @@ pandas
 numpy
 requests
 scikit-learn
+plotly
+openpyxl
+joblib
+python-dotenv
