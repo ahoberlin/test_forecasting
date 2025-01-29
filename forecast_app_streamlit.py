@@ -7,7 +7,10 @@ import requests
 import streamlit as st
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import plotly.express as px
+from joblib import Parallel, delayed
+from dotenv import load_dotenv
 
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
@@ -86,35 +89,40 @@ def fetch_event_data(start_date, end_date):
         })
     return pd.DataFrame(event_data)
 
-# Konfiguration laden
-config = load_config()
+# Modelltraining (mit Caching für bessere Performance)
+@st.cache(allow_output_mutation=True)
+def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
+    model = Prophet(
+        changepoint_prior_scale=changepoint_prior_scale,
+        seasonality_prior_scale=seasonality_prior_scale
+    )
+    for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
+        if col in data.columns:
+            model.add_regressor(col)
+    model.fit(data)
+    return model
 
 # Streamlit UI
 st.title("Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
 # Anleitung
-st.sidebar.markdown("""
-**Anleitung:**
-1. Laden Sie eine CSV-Datei mit Zeitreihendaten hoch.
-2. Fügen Sie Meta-Daten hinzu (optional).
-3. Starten Sie den Forecast.
-4. Visualisieren und speichern Sie die Ergebnisse.
-""")
+with st.expander("Wie verwende ich dieses Tool?"):
+    st.write("""
+    1. Laden Sie eine CSV-Datei mit Zeitreihendaten hoch (Spalten: `ds` für Datum, `y` für Zielvariable).
+    2. Fügen Sie optional Meta-Daten hinzu (Wetter, Verkehr, Events).
+    3. Passen Sie die Modellparameter an.
+    4. Starten Sie den Forecast und visualisieren Sie die Ergebnisse.
+    5. Exportieren Sie die Ergebnisse in verschiedenen Formaten.
+    """)
 
 # Einstellungen bearbeiten
-forecast_horizon = st.sidebar.number_input("Forecast-Horizont (Tage)", min_value=1, max_value=365, value=config["forecast_horizon"])
-api_key = st.sidebar.text_input("OpenWeatherMap API Key", config["api_keys"]["openweathermap"], type="password")
-latitude = st.sidebar.number_input("Breitengrad", value=config["location"]["latitude"])
-longitude = st.sidebar.number_input("Längengrad", value=config["location"]["longitude"])
-
-# Speichern der Einstellungen
-if st.sidebar.button("Einstellungen speichern"):
-    config["forecast_horizon"] = forecast_horizon
-    config["api_keys"]["openweathermap"] = api_key
-    config["location"] = {"latitude": latitude, "longitude": longitude}
-    save_config(config)
-    st.sidebar.success("Einstellungen gespeichert!")
+forecast_horizon = st.sidebar.number_input("Forecast-Horizont (Tage)", min_value=1, max_value=365, value=30)
+api_key = st.sidebar.text_input("OpenWeatherMap API Key", type="password")
+latitude = st.sidebar.number_input("Breitengrad", value=52.5200)
+longitude = st.sidebar.number_input("Längengrad", value=13.4050)
+changepoint_prior_scale = st.sidebar.slider("Changepoint Prior Scale", 0.01, 0.5, 0.05)
+seasonality_prior_scale = st.sidebar.slider("Seasonality Prior Scale", 0.01, 10.0, 10.0)
 
 # Datei hochladen
 uploaded_file = st.file_uploader("Zeitreihendaten hochladen (CSV-Datei)", type="csv")
@@ -152,11 +160,7 @@ if data is not None and st.button("Meta-Daten hinzufügen"):
 if data is not None and st.button("Forecast starten"):
     try:
         with st.spinner("Modell wird trainiert..."):
-            model = Prophet()
-            for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
-                if col in data.columns:
-                    model.add_regressor(col)
-            model.fit(data)
+            model = train_model(data, changepoint_prior_scale, seasonality_prior_scale)
             future = model.make_future_dataframe(periods=forecast_horizon)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in data.columns:
@@ -167,18 +171,12 @@ if data is not None and st.button("Forecast starten"):
             st.session_state['data'] = data
         st.success("Forecast erfolgreich erstellt!")
 
-        # Plot Forecast
+        # Plot Forecast mit Plotly
         st.subheader("Forecast-Visualisierung")
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(forecast['ds'], forecast['yhat'], label="Vorhersage")
+        fig = px.line(forecast, x='ds', y='yhat', title="Forecast mit Meta-Daten")
         if 'y' in data.columns:
-            ax.plot(data['ds'], data['y'], label="Tatsächliche Werte")
-        ax.fill_between(forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'], alpha=0.3, label="Unsicherheitsintervall")
-        ax.set_title("Forecast mit Meta-Daten")
-        ax.set_xlabel("Datum")
-        ax.set_ylabel("Wert")
-        ax.legend()
-        st.pyplot(fig)
+            fig.add_scatter(x=data['ds'], y=data['y'], mode='lines', name="Tatsächliche Werte")
+        st.plotly_chart(fig)
 
         # Zusätzliche Komponenten visualisieren
         st.subheader("Forecast-Komponenten")
@@ -189,18 +187,22 @@ if data is not None and st.button("Forecast starten"):
         if 'y' in data.columns:
             mae = mean_absolute_error(data['y'], forecast['yhat'][:len(data)])
             mse = mean_squared_error(data['y'], forecast['yhat'][:len(data)])
+            r2 = r2_score(data['y'], forecast['yhat'][:len(data)])
             st.write(f"**Metriken:**")
-            st.write(f"MAE: {mae:.2f}, MSE: {mse:.2f}")
+            st.write(f"MAE: {mae:.2f}, MSE: {mse:.2f}, R²: {r2:.2f}")
 
     except Exception as e:
         st.error(f"Fehler beim Forecast: {e}")
 
-# Ergebnisse speichern
+# Ergebnisse exportieren
 if "forecast" in st.session_state:
     forecast = st.session_state["forecast"]
     save_path = st.text_input("Pfad für die gespeicherte Datei", "forecast_results.csv")
-    if save_path and st.button("Ergebnisse speichern"):
+    if st.button("Ergebnisse als CSV exportieren"):
         forecast.to_csv(save_path, index=False)
-        st.success("Ergebnisse erfolgreich gespeichert!")
+        st.success("Ergebnisse erfolgreich exportiert!")
+    if st.button("Ergebnisse als Excel exportieren"):
+        forecast.to_excel(save_path.replace(".csv", ".xlsx"), index=False)
+        st.success("Ergebnisse erfolgreich exportiert!")
 else:
     st.warning("Bitte führen Sie zuerst den Forecast durch.")
