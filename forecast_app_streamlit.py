@@ -37,8 +37,7 @@ def save_config(config):
 # =============================================================================
 def load_data():
     """
-    Lädt die Daten entweder aus einer Datei (CSV/Excel) oder aus Google Sheets,
-    wendet einen optionalen Filter an und gibt den DataFrame zurück.
+    Lädt die Daten aus einer Datei (CSV/Excel) oder aus Google Sheets, wendet einen optionalen Filter an und gibt den DataFrame zurück.
     """
     try:
         data_source = st.sidebar.radio("Datenquelle", options=["Datei (CSV/Excel)", "Google Sheets"], key="data_source")
@@ -70,7 +69,7 @@ def load_data():
         if data is None or data.empty:
             st.sidebar.error("❌ Die Datenquelle liefert keine Daten.")
             return None
-
+        # Spaltenauswahl
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
@@ -81,7 +80,7 @@ def load_data():
         data['y'] = data[y_col]
         # Aggregiere untertägige Daten auf Tagesbasis
         data['ds'] = data['ds'].dt.floor('D')
-        # Optional: Filterfeld
+        # Optionaler Filter
         filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
         if filter_field != "Keine Filterung":
             unique_vals = sorted(data[filter_field].dropna().unique().tolist())
@@ -97,12 +96,12 @@ def load_data():
         return None
 
 # =============================================================================
-# Modul: Manuelle Monatsvolumen
+# Modul: Manuelle Monatsvolumen verarbeiten
 # =============================================================================
 def process_manual_volumes():
     """
     Ermöglicht das Hinzufügen und Bearbeiten manueller Monatsvolumen.
-    Gibt ein DataFrame mit den manuellen Einträgen (inkl. Spalte 'Month_Year') zurück.
+    Gibt ein DataFrame mit manuellen Einträgen (inkl. Spalte 'Month_Year') zurück.
     """
     try:
         st.sidebar.subheader("Manuelle Monatsvolumen")
@@ -133,7 +132,7 @@ def process_manual_volumes():
             vol_df = st.data_editor(vol_df, num_rows="dynamic", key="volumes_editor")
             st.table(vol_df)
             st.session_state["manual_volumes"] = vol_df.to_dict("records")
-            # Erstelle Spalte "Month_Year"
+            # Erstelle Spalte "Month_Year" im Format "YYYY-MM"
             month_map = {
                 "Januar": "01", "Februar": "02", "März": "03", "April": "04",
                 "Mai": "05", "Juni": "06", "Juli": "07", "August": "08",
@@ -209,7 +208,7 @@ def main():
                                          changepoint_prior_scale, seasonality_prior_scale)
         if forecast is None:
             return
-        # Speichere den Original-Forecast (ohne manuelle Anpassung) für Vergleichstabelle
+        # Speichere den Original-Forecast (ohne manuelle Skalierung) für die Vergleichstabelle
         st.session_state["forecast_original"] = forecast.copy()
         
         # Anwenden manueller Anpassungen (dies beeinflusst den Forecast, nicht die Vergleichstabelle)
@@ -237,11 +236,10 @@ def main():
         st.session_state["forecast"] = forecast
         st.success("✅ Forecast erfolgreich erstellt!")
         
-        # Visualisierung
+        # Visualisierungen
         st.subheader("📉 Forecast-Visualisierung")
         fig = px.line(forecast, x="ds", y="yhat", title="🔮 Prognose")
-        fig.add_scatter(x=st.session_state["data"]["ds"], y=st.session_state["data"]["y"],
-                        mode="lines", name="Tatsächliche Werte")
+        fig.add_scatter(x=st.session_state["data"]["ds"], y=st.session_state["data"]["y"], mode="lines", name="Tatsächliche Werte")
         st.plotly_chart(fig)
         
         st.subheader("📊 Prophet-Komponenten")
@@ -267,12 +265,12 @@ def main():
         )
         
         # Vergleichstabelle: Verwende den Original-Forecast (ohne manuelle Skalierung)
-        if "forecast_original" in st.session_state:
+        if "forecast_original" in st.session_state and "manual_volumes" in st.session_state:
             forecast_orig = st.session_state["forecast_original"]
-            if not forecast_orig.empty and "manual_volumes" in st.session_state:
+            if not forecast_orig.empty:
                 forecast_orig["Month_Year"] = forecast_orig["ds"].dt.to_period("M").astype(str)
-                vol_df = process_manual_volumes()  # aktuelles DF der manuellen Einträge
-                merged_vol = pd.merge(vol_df,
+                vol_df = process_manual_volumes()  # aktuelles DataFrame der manuellen Einträge
+                merged_vol = pd.merge(vol_df, 
                                         forecast_orig.groupby("Month_Year")["yhat"].sum().reset_index(),
                                         on="Month_Year", how="left")
                 merged_vol.rename(columns={"Volumen": "Manuelles Volumen", "yhat": "Forecast Volumen"}, inplace=True)
