@@ -106,10 +106,28 @@ if uploaded_file is not None:
 forecast_type = st.sidebar.radio("Forecast-Basis", options=["Tagesbasis", "Intervallbasis"])
 
 if forecast_type == "Tagesbasis":
-    forecast_horizon = st.sidebar.slider("Forecast-Horizont (Tage)", 1, 365, 30)
+    # Standard: als Startdatum der Tag nach dem letzten historischen Datum (sofern vorhanden)
+    if 'data' in st.session_state and st.session_state['data'] is not None:
+        default_start = (st.session_state['data']['ds'].max() + pd.Timedelta(days=1)).date()
+    else:
+        default_start = datetime.today().date()
+    default_end = default_start + timedelta(days=30)
+    
+    forecast_start = st.sidebar.date_input("Startdatum", value=default_start)
+    forecast_end = st.sidebar.date_input("Enddatum", value=default_end)
     freq = "D"
 else:
-    forecast_horizon = st.sidebar.slider("Forecast-Horizont (Anzahl Intervalle)", 1, 96, 30)
+    # Für Intervallbasis erfolgt eine Datum-/Uhrzeitauswahl
+    if 'data' in st.session_state and st.session_state['data'] is not None:
+        last_date = st.session_state['data']['ds'].max()
+        default_start = datetime.combine((last_date + pd.Timedelta(days=1)).date(), datetime.min.time())
+    else:
+        default_start = datetime.now().replace(second=0, microsecond=0)
+    default_end = default_start + timedelta(days=1)
+    
+    forecast_start = st.sidebar.datetime_input("Startdatum & Uhrzeit", value=default_start)
+    forecast_end = st.sidebar.datetime_input("Enddatum & Uhrzeit", value=default_end)
+    
     interval_choice = st.sidebar.selectbox("Intervall Länge", options=["15 Minuten", "30 Minuten", "60 Minuten"])
     freq = {"15 Minuten": "15min", "30 Minuten": "30min", "60 Minuten": "60min"}[interval_choice]
 
@@ -125,13 +143,15 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
-            future = model.make_future_dataframe(periods=forecast_horizon, freq=freq)
-            # Falls zusätzliche Regressoren vorhanden sind, diese zu future hinzufügen
+            # Erstelle einen Future DataFrame basierend auf der ausgewählten Datumsauswahl und Frequenz
+            future_dates = pd.date_range(start=forecast_start, end=forecast_end, freq=freq)
+            future = pd.DataFrame({'ds': future_dates})
+            periods = len(future_dates)
+            # Falls zusätzliche Regressoren vorhanden sind, diese übernehmen – simuliert anhand der letzten Werte
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state['data'].columns:
-                    # Falls genügend Werte vorhanden sind, die letzten forecast_horizon Werte verwenden
-                    if len(st.session_state['data'][col]) >= forecast_horizon:
-                        future[col] = st.session_state['data'][col].iloc[-forecast_horizon:].values
+                    if len(st.session_state['data'][col]) >= periods:
+                        future[col] = st.session_state['data'][col].iloc[-periods:].values
                     else:
                         future[col] = np.nan
             forecast = model.predict(future)
