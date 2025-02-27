@@ -102,8 +102,18 @@ if uploaded_file is not None:
             st.write(data.head())
             st.session_state['data'] = data
 
-# Forecast-Einstellungen
-forecast_horizon = st.sidebar.slider("Forecast-Horizont (Tage)", 1, 365, 30)
+# Forecast-Basis: Tagesbasis oder Intervallbasis
+forecast_type = st.sidebar.radio("Forecast-Basis", options=["Tagesbasis", "Intervallbasis"])
+
+if forecast_type == "Tagesbasis":
+    forecast_horizon = st.sidebar.slider("Forecast-Horizont (Tage)", 1, 365, 30)
+    freq = "D"
+else:
+    forecast_horizon = st.sidebar.slider("Forecast-Horizont (Anzahl Intervalle)", 1, 96, 30)
+    interval_choice = st.sidebar.selectbox("Intervall Länge", options=["15 Minuten", "30 Minuten", "60 Minuten"])
+    freq = {"15 Minuten": "15min", "30 Minuten": "30min", "60 Minuten": "60min"}[interval_choice]
+
+# Weitere Forecast-Einstellungen
 api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
 latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
 longitude = st.sidebar.number_input("🌍 Längengrad", value=13.4050)
@@ -115,7 +125,7 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
-            future = model.make_future_dataframe(periods=forecast_horizon)
+            future = model.make_future_dataframe(periods=forecast_horizon, freq=freq)
             # Falls zusätzliche Regressoren vorhanden sind, diese zu future hinzufügen
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state['data'].columns:
