@@ -13,7 +13,7 @@ from joblib import Parallel, delayed
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "forecast_horizon": 30,
+    "forecast_horizon": 30,  # Wird jetzt nicht mehr genutzt, sondern nur als Fallback
     "api_keys": {"openweathermap": "Ihr_API_Schlüssel"},
     "location": {"latitude": 52.5200, "longitude": 13.4050}
 }
@@ -72,11 +72,10 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
     model.fit(data)
     return model
 
-# Streamlit UI
 st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
-# Gesonderte Sektion: Daten Upload & Spaltenzuordnung an oberster Stelle
+# Daten Upload & Spaltenzuordnung
 st.sidebar.subheader("Daten Upload & Spaltenzuordnung")
 uploaded_file = st.sidebar.file_uploader("📂 Zeitreihendaten hochladen (CSV)", type="csv")
 if uploaded_file is not None:
@@ -100,35 +99,17 @@ if uploaded_file is not None:
             st.write(data.head())
             st.session_state['data'] = data
 
-# Forecast-Basis: Tagesbasis oder Intervallbasis auswählen
-forecast_type = st.sidebar.radio("Forecast-Basis", options=["Tagesbasis", "Intervallbasis"])
-
-if forecast_type == "Tagesbasis":
-    # Standard-Startdatum: Tag nach dem letzten Datum der historischen Daten (falls vorhanden)
-    if 'data' in st.session_state and st.session_state['data'] is not None:
-        default_start = (st.session_state['data']['ds'].max() + pd.Timedelta(days=1)).date()
-    else:
-        default_start = datetime.today().date()
-    default_end = default_start + timedelta(days=30)
-    
-    st.sidebar.write("Startdatum: ", default_start)
-    forecast_end = st.sidebar.date_input("Enddatum", value=default_end)
-    forecast_start = default_start
-    freq = "D"
+# Forecast-Horizont: Kein Schieberegler mehr, sondern nur das Enddatum wird angegeben
+if 'data' in st.session_state and st.session_state['data'] is not None:
+    # Das letzte Datum der historischen Daten ermitteln
+    last_date = st.session_state['data']['ds'].max().date()
+    st.sidebar.write("Letztes Datum in den historischen Daten:", last_date)
+    # Der Nutzer wählt nur das Enddatum des Forecast-Horizonts
+    forecast_end = st.sidebar.date_input("Enddatum für Forecast-Horizont", value=last_date + timedelta(days=30))
+    # Der Forecast-Horizont wird automatisch als Differenz (in Tagen) berechnet
+    forecast_horizon = (forecast_end - last_date).days
 else:
-    # Für Intervallbasis: Datum-/Uhrzeitauswahl
-    if 'data' in st.session_state and st.session_state['data'] is not None:
-        last_date = st.session_state['data']['ds'].max()
-        default_start = datetime.combine((last_date + pd.Timedelta(days=1)).date(), datetime.min.time())
-    else:
-        default_start = datetime.now().replace(second=0, microsecond=0)
-    default_end = default_start + timedelta(days=1)
-    
-    st.sidebar.write("Startdatum & Uhrzeit: ", default_start)
-    forecast_end = st.sidebar.datetime_input("Enddatum & Uhrzeitauswahl", value=default_end)
-    forecast_start = default_start
-    interval_choice = st.sidebar.selectbox("Intervall Länge", options=["15 Minuten", "30 Minuten", "60 Minuten"])
-    freq = {"15 Minuten": "15min", "30 Minuten": "30min", "60 Minuten": "60min"}[interval_choice]
+    forecast_horizon = DEFAULT_CONFIG["forecast_horizon"]
 
 # Weitere Forecast-Einstellungen
 api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
@@ -142,20 +123,15 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
-            
-            # Erstelle Future DataFrame basierend auf dem automatisch gesetzten Startdatum und dem angegebenen Enddatum
-            future_dates = pd.date_range(start=forecast_start, end=forecast_end, freq=freq)
-            future = pd.DataFrame({'ds': future_dates})
-            periods = len(future_dates)
-            
+            # Erstelle Future DataFrame anhand des automatisch berechneten Forecast-Horizonts
+            future = model.make_future_dataframe(periods=forecast_horizon)
             # Falls zusätzliche Regressoren vorhanden sind, diese hinzufügen (hier simuliert anhand der letzten Werte)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state['data'].columns:
-                    if len(st.session_state['data'][col]) >= periods:
-                        future[col] = st.session_state['data'][col].iloc[-periods:].values
+                    if len(st.session_state['data'][col]) >= forecast_horizon:
+                        future[col] = st.session_state['data'][col].iloc[-forecast_horizon:].values
                     else:
                         future[col] = np.nan
-                        
             forecast = model.predict(future)
             st.session_state['forecast'] = forecast
             st.success("✅ Forecast erfolgreich erstellt!")
