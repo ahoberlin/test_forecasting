@@ -9,11 +9,12 @@ from prophet import Prophet
 import plotly.express as px
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from joblib import Parallel, delayed
+import matplotlib.pyplot as plt  # Für die Prophet-Komponenten-Plots
 
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "forecast_horizon": 30,  # Wird jetzt nicht mehr genutzt, sondern nur als Fallback
+    "forecast_horizon": 30,  # Fallback-Wert (wird nicht mehr aktiv genutzt)
     "api_keys": {"openweathermap": "Ihr_API_Schlüssel"},
     "location": {"latitude": 52.5200, "longitude": 13.4050}
 }
@@ -83,12 +84,9 @@ if uploaded_file is not None:
     if data.empty:
         st.sidebar.error("❌ Die hochgeladene Datei ist leer.")
     else:
-        # Spalten der hochgeladenen Datei ermitteln
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
-        
-        # Konvertiere das ausgewählte Datums-Feld in datetime
         data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
         if data['ds'].isnull().all():
             st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
@@ -99,14 +97,11 @@ if uploaded_file is not None:
             st.write(data.head())
             st.session_state['data'] = data
 
-# Forecast-Horizont: Kein Schieberegler mehr, sondern nur das Enddatum wird angegeben
+# Forecast-Horizont: Kein Schieberegler mehr, sondern nur das Enddatum wird angegeben.
 if 'data' in st.session_state and st.session_state['data'] is not None:
-    # Das letzte Datum der historischen Daten ermitteln
     last_date = st.session_state['data']['ds'].max().date()
     st.sidebar.write("Letztes Datum in den historischen Daten:", last_date)
-    # Der Nutzer wählt nur das Enddatum des Forecast-Horizonts
     forecast_end = st.sidebar.date_input("Enddatum für Forecast-Horizont", value=last_date + timedelta(days=30))
-    # Der Forecast-Horizont wird automatisch als Differenz (in Tagen) berechnet
     forecast_horizon = (forecast_end - last_date).days
 else:
     forecast_horizon = DEFAULT_CONFIG["forecast_horizon"]
@@ -123,9 +118,7 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
-            # Erstelle Future DataFrame anhand des automatisch berechneten Forecast-Horizonts
             future = model.make_future_dataframe(periods=forecast_horizon)
-            # Falls zusätzliche Regressoren vorhanden sind, diese hinzufügen (hier simuliert anhand der letzten Werte)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state['data'].columns:
                     if len(st.session_state['data'][col]) >= forecast_horizon:
@@ -136,11 +129,16 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
             st.session_state['forecast'] = forecast
             st.success("✅ Forecast erfolgreich erstellt!")
             
-            # Forecast visualisieren
+            # Haupt-Forecast-Visualisierung (Plotly)
             st.subheader("📉 Forecast-Visualisierung")
             fig = px.line(forecast, x='ds', y='yhat', title="🔮 Prognose")
             fig.add_scatter(x=st.session_state['data']['ds'], y=st.session_state['data']['y'], mode='lines', name="Tatsächliche Werte")
             st.plotly_chart(fig)
+            
+            # Prophet-Komponenten-Plots (Matplotlib)
+            st.subheader("📊 Prophet-Komponenten")
+            components_fig = model.plot_components(forecast)
+            st.pyplot(components_fig)
             
             # Performance-Metriken berechnen: Merge der historischen Daten mit Forecast-Daten anhand von 'ds'
             historical = st.session_state['data'][['ds', 'y']]
