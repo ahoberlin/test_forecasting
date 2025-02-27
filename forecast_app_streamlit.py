@@ -11,6 +11,10 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from joblib import Parallel, delayed
 import matplotlib.pyplot as plt  # Für die Komponenten-Plots
 
+# Zusätzliche Bibliotheken für Google Sheets (müssen in requirements.txt stehen)
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
@@ -76,42 +80,68 @@ st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
 # ─────────────────────────────
-# Bereich: Daten Upload, Spaltenzuordnung & Filterung
+# Bereich: Datenquelle auswählen: Datei oder Google Sheets
 # ─────────────────────────────
-st.sidebar.subheader("Daten Upload & Filterung")
-uploaded_file = st.sidebar.file_uploader("📂 Datei hochladen (CSV oder Excel)", type=["csv", "xls", "xlsx"])
-if uploaded_file is not None:
-    # Dateityp prüfen
-    if uploaded_file.name.endswith('.csv'):
-        data = pd.read_csv(uploaded_file)
-    elif uploaded_file.name.endswith(('.xls', '.xlsx')):
-        data = pd.read_excel(uploaded_file)
-    else:
-        st.sidebar.error("Nicht unterstützter Dateityp.")
-    
-    if data.empty:
-        st.sidebar.error("❌ Die hochgeladene Datei ist leer.")
-    else:
-        columns = list(data.columns)
-        ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
-        y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
-        # Hier wird der DS-Wert in datetime konvertiert (Standard: automatisch erkennen)
-        data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
-        if data['ds'].isnull().all():
-            st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
+data_source = st.sidebar.radio("Datenquelle", options=["Datei (CSV/Excel)", "Google Sheets"])
+
+if data_source == "Datei (CSV/Excel)":
+    uploaded_file = st.sidebar.file_uploader("📂 Datei hochladen (CSV oder Excel)", type=["csv", "xls", "xlsx"])
+    if uploaded_file is not None:
+        # Dateityp prüfen
+        if uploaded_file.name.endswith('.csv'):
+            data = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith(('.xls', '.xlsx')):
+            data = pd.read_excel(uploaded_file)
         else:
-            data['y'] = data[y_col]
-            # Optional: Filterfeld auswählen
-            filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
-            if filter_field != "Keine Filterung":
-                unique_vals = sorted(data[filter_field].dropna().unique().tolist())
-                filter_value = st.sidebar.selectbox(f"Filterwert für {filter_field}", options=["Alle"] + [str(val) for val in unique_vals], key="filter_value")
-                if filter_value != "Alle":
-                    data = data[data[filter_field].astype(str) == filter_value]
-            st.sidebar.success("✅ Daten erfolgreich geladen (ggf. gefiltert)!")
-            st.write("### Datenvorschau")
-            st.write(data.head())
-            st.session_state['data'] = data
+            st.sidebar.error("Nicht unterstützter Dateityp.")
+        
+        if data.empty:
+            st.sidebar.error("❌ Die hochgeladene Datei ist leer.")
+        else:
+            columns = list(data.columns)
+            ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
+            y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
+            # Hier erfolgt die Konvertierung der ds-Spalte in datetime
+            data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
+            if data['ds'].isnull().all():
+                st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
+            else:
+                data['y'] = data[y_col]
+                st.sidebar.success("✅ Daten erfolgreich geladen!")
+                st.write("### Datenvorschau")
+                st.write(data.head())
+                st.session_state['data'] = data
+
+elif data_source == "Google Sheets":
+    sheet_url = st.sidebar.text_input("Google Sheets URL", value="")
+    cred_path = st.sidebar.text_input("Pfad zur Credentials JSON", value="credentials.json")
+    if sheet_url:
+        try:
+            scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+            creds = ServiceAccountCredentials.from_json_keyfile_name(cred_path, scope)
+            client = gspread.authorize(creds)
+            sheet = client.open_by_url(sheet_url)
+            worksheet = sheet.get_worksheet(0)  # Verwende das erste Arbeitsblatt
+            data = pd.DataFrame(worksheet.get_all_records())
+            if data.empty:
+                st.sidebar.error("❌ Das Google Sheet ist leer.")
+            else:
+                columns = list(data.columns)
+                ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
+                y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
+                data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
+                if data['ds'].isnull().all():
+                    st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
+                else:
+                    data['y'] = data[y_col]
+                    st.sidebar.success("✅ Daten erfolgreich geladen!")
+                    st.write("### Datenvorschau")
+                    st.write(data.head())
+                    st.session_state['data'] = data
+        except Exception as e:
+            st.error(f"Fehler beim Laden der Google Sheets Daten: {e}")
+    else:
+        st.info("Bitte geben Sie die Google Sheets URL ein.")
 
 # ─────────────────────────────
 # Bereich: Manuelle Monatsvolumen (Einträge mit Monat, Jahr, Volumen und Checkbox)
