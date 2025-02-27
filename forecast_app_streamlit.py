@@ -66,7 +66,6 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
         changepoint_prior_scale=changepoint_prior_scale,
         seasonality_prior_scale=seasonality_prior_scale
     )
-    # Zusätzliche Regressoren hinzufügen, falls vorhanden
     for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
         if col in data.columns:
             model.add_regressor(col)
@@ -89,20 +88,18 @@ if uploaded_file is not None:
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
-        # Optional: Filterfeld auswählen (optional, "Keine Filterung" als Option)
-        filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
-        filter_value = ""
-        if filter_field != "Keine Filterung":
-            filter_value = st.sidebar.text_input(f"Filterwert für {filter_field}", value="")
-        
         data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
         if data['ds'].isnull().all():
             st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
         else:
             data['y'] = data[y_col]
-            # Wenn ein Filter gesetzt wurde, wende diesen auf die Daten an
-            if filter_field != "Keine Filterung" and filter_value != "":
-                data = data[data[filter_field].astype(str) == filter_value]
+            # Filterfeld-Auswahl:
+            filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
+            if filter_field != "Keine Filterung":
+                unique_vals = sorted(data[filter_field].dropna().unique().tolist())
+                filter_value = st.sidebar.selectbox(f"Filterwert für {filter_field}", options=["Alle"] + [str(val) for val in unique_vals], key="filter_value")
+                if filter_value != "Alle":
+                    data = data[data[filter_field].astype(str) == filter_value]
             st.sidebar.success("✅ Daten erfolgreich geladen (ggf. gefiltert)!")
             st.write("### Datenvorschau")
             st.write(data.head())
@@ -132,7 +129,7 @@ with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
         })
         st.success("Eintrag hinzugefügt!")
 
-# Falls bereits manuelle Monatsvolumen vorhanden sind, interaktiv bearbeitbar anzeigen
+# Interaktive Bearbeitung der manuellen Monatsvolumen
 if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     st.write("### Manuelle Monatsvolumen (bearbeitbar)")
     vol_df = pd.DataFrame(st.session_state["manual_volumes"])
@@ -163,7 +160,7 @@ if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     else:
         forecast_monthly = pd.DataFrame(columns=["Month_Year", "yhat"])
     
-    # Merge manuelle Eingaben mit den Forecast-Werten (Vergleichstabelle)
+    # Merge manuelle Eingaben mit den Forecast-Werten
     merged_vol = pd.merge(vol_df, forecast_monthly, on="Month_Year", how="left")
     merged_vol.rename(columns={"Volumen": "Manuelles Volumen", "yhat": "Forecast Volumen"}, inplace=True)
     merged_vol["Forecast Volumen"] = merged_vol["Forecast Volumen"].fillna("Keine Daten")
