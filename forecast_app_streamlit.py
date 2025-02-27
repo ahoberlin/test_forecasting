@@ -11,10 +11,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from joblib import Parallel, delayed
 import matplotlib.pyplot as plt  # Für die Komponenten-Plots
 
-# Zusätzliche Bibliotheken für Google Sheets (müssen in requirements.txt stehen)
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
@@ -33,7 +29,7 @@ def save_config(config):
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
 
-# Funktion zum Abrufen von Wetterdaten (Beispiel)
+# Wetterdaten effizient abrufen
 def fetch_weather_data(start_date, end_date, lat, lon, api_key):
     date_range = pd.date_range(start=start_date, end=end_date)
     def fetch_single_day(date):
@@ -80,14 +76,14 @@ st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
 # ─────────────────────────────
-# Bereich: Datenquelle auswählen: Datei oder Google Sheets
+# Daten Upload & Filterung (CSV/Excel oder Google Sheets)
 # ─────────────────────────────
-data_source = st.sidebar.radio("Datenquelle", options=["Datei (CSV/Excel)", "Google Sheets"])
+st.sidebar.subheader("Daten Upload & Filterung")
+data_source = st.sidebar.radio("Datenquelle", options=["Datei (CSV/Excel)", "Google Sheets"], key="data_source")
 
 if data_source == "Datei (CSV/Excel)":
     uploaded_file = st.sidebar.file_uploader("📂 Datei hochladen (CSV oder Excel)", type=["csv", "xls", "xlsx"])
     if uploaded_file is not None:
-        # Dateityp prüfen
         if uploaded_file.name.endswith('.csv'):
             data = pd.read_csv(uploaded_file)
         elif uploaded_file.name.endswith(('.xls', '.xlsx')):
@@ -101,13 +97,19 @@ if data_source == "Datei (CSV/Excel)":
             columns = list(data.columns)
             ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
             y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
-            # Hier erfolgt die Konvertierung der ds-Spalte in datetime
             data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
             if data['ds'].isnull().all():
                 st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
             else:
                 data['y'] = data[y_col]
-                st.sidebar.success("✅ Daten erfolgreich geladen!")
+                # Filterfeld auswählen (optional)
+                filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
+                if filter_field != "Keine Filterung":
+                    unique_vals = sorted(data[filter_field].dropna().unique().tolist())
+                    filter_value = st.sidebar.selectbox(f"Filterwert für {filter_field}", options=["Alle"] + [str(val) for val in unique_vals], key="filter_value")
+                    if filter_value != "Alle":
+                        data = data[data[filter_field].astype(str) == filter_value]
+                st.sidebar.success("✅ Daten erfolgreich geladen (ggf. gefiltert)!")
                 st.write("### Datenvorschau")
                 st.write(data.head())
                 st.session_state['data'] = data
@@ -117,11 +119,13 @@ elif data_source == "Google Sheets":
     cred_path = st.sidebar.text_input("Pfad zur Credentials JSON", value="credentials.json")
     if sheet_url:
         try:
+            import gspread
+            from oauth2client.service_account import ServiceAccountCredentials
             scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
             creds = ServiceAccountCredentials.from_json_keyfile_name(cred_path, scope)
             client = gspread.authorize(creds)
             sheet = client.open_by_url(sheet_url)
-            worksheet = sheet.get_worksheet(0)  # Verwende das erste Arbeitsblatt
+            worksheet = sheet.get_worksheet(0)
             data = pd.DataFrame(worksheet.get_all_records())
             if data.empty:
                 st.sidebar.error("❌ Das Google Sheet ist leer.")
@@ -134,7 +138,14 @@ elif data_source == "Google Sheets":
                     st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
                 else:
                     data['y'] = data[y_col]
-                    st.sidebar.success("✅ Daten erfolgreich geladen!")
+                    # Optional: Filterfeld auswählen
+                    filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
+                    if filter_field != "Keine Filterung":
+                        unique_vals = sorted(data[filter_field].dropna().unique().tolist())
+                        filter_value = st.sidebar.selectbox(f"Filterwert für {filter_field}", options=["Alle"] + [str(val) for val in unique_vals], key="filter_value")
+                        if filter_value != "Alle":
+                            data = data[data[filter_field].astype(str) == filter_value]
+                    st.sidebar.success("✅ Daten erfolgreich geladen (ggf. gefiltert)!")
                     st.write("### Datenvorschau")
                     st.write(data.head())
                     st.session_state['data'] = data
@@ -144,7 +155,7 @@ elif data_source == "Google Sheets":
         st.info("Bitte geben Sie die Google Sheets URL ein.")
 
 # ─────────────────────────────
-# Bereich: Manuelle Monatsvolumen (Einträge mit Monat, Jahr, Volumen und Checkbox)
+# Bereich: Manuelle Monatsvolumen (mit Einträgen, Checkbox, und interaktiver Bearbeitung)
 # ─────────────────────────────
 st.sidebar.subheader("Manuelle Monatsvolumen")
 with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
@@ -167,7 +178,6 @@ with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
         })
         st.success("Eintrag hinzugefügt!")
 
-# Interaktive Bearbeitung der manuellen Monatsvolumen
 if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     st.write("### Manuelle Monatsvolumen (bearbeitbar)")
     vol_df = pd.DataFrame(st.session_state["manual_volumes"])
@@ -198,7 +208,6 @@ if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     else:
         forecast_monthly = pd.DataFrame(columns=["Month_Year", "yhat"])
     
-    # Merge manuelle Eingaben mit den Forecast-Werten (Vergleichstabelle)
     merged_vol = pd.merge(vol_df, forecast_monthly, on="Month_Year", how="left")
     merged_vol.rename(columns={"Volumen": "Manuelles Volumen", "yhat": "Forecast Volumen"}, inplace=True)
     merged_vol["Forecast Volumen"] = merged_vol["Forecast Volumen"].fillna("Keine Daten")
