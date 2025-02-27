@@ -76,7 +76,9 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
 st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
-# Daten Upload & Spaltenzuordnung
+# ─────────────────────────────
+# Bereich: Daten Upload & Spaltenzuordnung
+# ─────────────────────────────
 st.sidebar.subheader("Daten Upload & Spaltenzuordnung")
 uploaded_file = st.sidebar.file_uploader("📂 Zeitreihendaten hochladen (CSV)", type="csv")
 if uploaded_file is not None:
@@ -88,7 +90,6 @@ if uploaded_file is not None:
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
-        
         # Konvertiere das ausgewählte Datums-Feld in datetime
         data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
         if data['ds'].isnull().all():
@@ -100,30 +101,37 @@ if uploaded_file is not None:
             st.write(data.head())
             st.session_state['data'] = data
 
-# Neue Einstellung: Manuelle Eingabe der monatlichen Volumen
-monatsvolumen_text = st.sidebar.text_area(
-    "Monatsvolumen (kommagetrennt oder zeilenweise eingeben)",
-    value="100, 200, 150, 300"
-)
-if monatsvolumen_text:
-    try:
-        # Ersetze Zeilenumbrüche durch Kommata und parse in Float-Werte
-        vol_list = [float(x.strip()) for x in monatsvolumen_text.replace("\n", ",").split(",") if x.strip() != ""]
-        vol_df = pd.DataFrame({
-            "Monat": [f"Monat {i}" for i in range(1, len(vol_list)+1)],
-            "Volumen": vol_list
+# ─────────────────────────────
+# Bereich: Manuelle Monatsvolumen mit Monat und Jahr
+# ─────────────────────────────
+st.sidebar.subheader("Manuelle Monatsvolumen")
+with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
+    month = st.selectbox("Monat", options=[
+        "Januar", "Februar", "März", "April", "Mai", "Juni",
+        "Juli", "August", "September", "Oktober", "November", "Dezember"
+    ])
+    year = st.number_input("Jahr", min_value=2000, max_value=2100, value=datetime.now().year, step=1)
+    volume = st.number_input("Volumen", min_value=0.0, value=100.0, step=0.1)
+    submitted = st.form_submit_button("Eintrag hinzufügen")
+    if submitted:
+        if "manual_volumes" not in st.session_state:
+            st.session_state["manual_volumes"] = []
+        st.session_state["manual_volumes"].append({
+            "Monat": month,
+            "Jahr": int(year),
+            "Volumen": volume
         })
-    except Exception as e:
-        st.error("Fehler beim Parsen der Monatsvolumen: " + str(e))
-else:
-    vol_df = pd.DataFrame()
+        st.success("Eintrag hinzugefügt!")
 
-# Unterhalb der Datenvorschau wird die Tabelle mit den manuell eingegebenen Monatsvolumen angezeigt
-if not vol_df.empty:
-    st.write("### Monatsvolumen")
+# Anzeige der manuellen Monatsvolumen als Tabelle
+if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
+    st.write("### Manuelle Monatsvolumen")
+    vol_df = pd.DataFrame(st.session_state["manual_volumes"])
     st.table(vol_df)
 
-# Forecast-Horizont: Kein Schieberegler mehr, sondern nur das Enddatum wird angegeben.
+# ─────────────────────────────
+# Bereich: Forecast-Horizont (Enddatum)
+# ─────────────────────────────
 forecast_horizon = None
 if 'data' in st.session_state and st.session_state['data'] is not None:
     last_date = st.session_state['data']['ds'].max().date()
@@ -135,19 +143,23 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
 else:
     forecast_horizon = DEFAULT_CONFIG["forecast_horizon"]
 
+# ─────────────────────────────
 # Weitere Forecast-Einstellungen
+# ─────────────────────────────
 api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
 latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
 longitude = st.sidebar.number_input("🌍 Längengrad", value=13.4050)
 changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01, 0.5, 0.05)
 seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
 
-# Forecast-Berechnung, falls Daten vorhanden sind und forecast_horizon gültig ist
+# ─────────────────────────────
+# Forecast-Berechnung und Visualisierung
+# ─────────────────────────────
 if 'data' in st.session_state and st.session_state['data'] is not None and forecast_horizon > 0:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
-            # Erstelle Future DataFrame anhand des berechneten Forecast-Horizonts
+            # Erstelle Future DataFrame basierend auf dem berechneten Forecast-Horizont
             future = model.make_future_dataframe(periods=forecast_horizon)
             # Falls zusätzliche Regressoren vorhanden sind, diese hinzufügen (hier simuliert anhand der letzten Werte)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
