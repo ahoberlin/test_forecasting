@@ -49,11 +49,17 @@ def fetch_weather_data(start_date, end_date, lat, lon, api_key):
 
 # Simulierte Verkehrsdaten
 def fetch_traffic_data(start_date, end_date):
-    return pd.DataFrame({"ds": pd.date_range(start=start_date, end=end_date), "traffic_intensity": np.random.randint(0, 10, size=(end_date - start_date).days + 1)})
+    return pd.DataFrame({
+        "ds": pd.date_range(start=start_date, end=end_date),
+        "traffic_intensity": np.random.randint(0, 10, size=(end_date - start_date).days + 1)
+    })
 
 # Simulierte Eventdaten
 def fetch_event_data(start_date, end_date):
-    return pd.DataFrame({"ds": pd.date_range(start=start_date, end=end_date), "event_count": np.random.randint(0, 5, size=(end_date - start_date).days + 1)})
+    return pd.DataFrame({
+        "ds": pd.date_range(start=start_date, end=end_date),
+        "event_count": np.random.randint(0, 5, size=(end_date - start_date).days + 1)
+    })
 
 # Prophet-Modell trainieren
 @st.cache_data
@@ -72,6 +78,7 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
 st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
+# Forecast-Einstellungen
 forecast_horizon = st.sidebar.slider("Forecast-Horizont (Tage)", 1, 365, 30)
 api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
 latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
@@ -79,26 +86,44 @@ longitude = st.sidebar.number_input("🌍 Längengrad", value=13.4050)
 changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01, 0.5, 0.05)
 seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
 
-# Datei hochladen
-uploaded_file = st.file_uploader("📂 Zeitreihendaten hochladen (CSV)", type="csv")
-data = None
-if uploaded_file:
+# Gesonderte Sektion: Daten Upload & Spaltenzuordnung
+st.sidebar.subheader("Daten Upload & Spaltenzuordnung")
+uploaded_file = st.sidebar.file_uploader("📂 Zeitreihendaten hochladen (CSV)", type="csv")
+if uploaded_file is not None:
     data = pd.read_csv(uploaded_file)
-    if 'ds' not in data.columns or 'y' not in data.columns:
-        st.error("❌ Die Datei muss 'ds' (Datum) und 'y' (Zielvariable) enthalten.")
+    if data.empty:
+        st.sidebar.error("❌ Die hochgeladene Datei ist leer.")
     else:
-        data['ds'] = pd.to_datetime(data['ds'])
-        st.session_state['data'] = data  # Sicherstellen, dass die Daten gespeichert werden
-        st.write("✅ Daten erfolgreich geladen:", data.head())
+        # Ermittle alle Spalten der hochgeladenen Datei
+        columns = list(data.columns)
+        ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
+        y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
+        
+        # Konvertiere das ausgewählte Datums-Feld in datetime
+        data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
+        if data['ds'].isnull().all():
+            st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
+        else:
+            data['y'] = data[y_col]
+            st.sidebar.success("✅ Daten erfolgreich geladen!")
+            st.write("### Datenvorschau")
+            st.write(data.head())
+            st.session_state['data'] = data
 
+# Forecast-Berechnung, falls Daten vorhanden sind
 if 'data' in st.session_state and st.session_state['data'] is not None:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
             future = model.make_future_dataframe(periods=forecast_horizon)
+            # Falls zusätzliche Regressoren vorhanden sind, diese zu future hinzufügen
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state['data'].columns:
-                    future[col] = st.session_state['data'][col].iloc[-forecast_horizon:].values
+                    # Falls genügend Werte vorhanden sind, die letzten forecast_horizon Werte verwenden
+                    if len(st.session_state['data'][col]) >= forecast_horizon:
+                        future[col] = st.session_state['data'][col].iloc[-forecast_horizon:].values
+                    else:
+                        future[col] = np.nan
             forecast = model.predict(future)
             st.session_state['forecast'] = forecast
             st.success("✅ Forecast erfolgreich erstellt!")
@@ -109,11 +134,13 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
             fig.add_scatter(x=st.session_state['data']['ds'], y=st.session_state['data']['y'], mode='lines', name="Tatsächliche Werte")
             st.plotly_chart(fig)
             
-            # Performance-Metriken
+            # Performance-Metriken berechnen
             if 'y' in st.session_state['data'].columns:
-                mae = mean_absolute_error(st.session_state['data']['y'], forecast['yhat'][:len(st.session_state['data'])])
-                mse = mean_squared_error(st.session_state['data']['y'], forecast['yhat'][:len(st.session_state['data'])])
-                r2 = r2_score(st.session_state['data']['y'], forecast['yhat'][:len(st.session_state['data'])])
+                actual = st.session_state['data']['y']
+                predicted = forecast['yhat'][:len(actual)]
+                mae = mean_absolute_error(actual, predicted)
+                mse = mean_squared_error(actual, predicted)
+                r2 = r2_score(actual, predicted)
                 st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
             
             # Export-Funktion
