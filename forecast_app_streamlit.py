@@ -111,8 +111,9 @@ if forecast_type == "Tagesbasis":
         default_start = datetime.today().date()
     default_end = default_start + timedelta(days=30)
     
-    forecast_start = st.sidebar.date_input("Startdatum", value=default_start)
+    st.sidebar.write("Startdatum: ", default_start)
     forecast_end = st.sidebar.date_input("Enddatum", value=default_end)
+    forecast_start = default_start
     freq = "D"
 else:
     # Für Intervallbasis: Datum-/Uhrzeitauswahl
@@ -123,9 +124,9 @@ else:
         default_start = datetime.now().replace(second=0, microsecond=0)
     default_end = default_start + timedelta(days=1)
     
-    forecast_start = st.sidebar.datetime_input("Startdatum & Uhrzeit", value=default_start)
-    forecast_end = st.sidebar.datetime_input("Enddatum & Uhrzeit", value=default_end)
-    
+    st.sidebar.write("Startdatum & Uhrzeit: ", default_start)
+    forecast_end = st.sidebar.datetime_input("Enddatum & Uhrzeitauswahl", value=default_end)
+    forecast_start = default_start
     interval_choice = st.sidebar.selectbox("Intervall Länge", options=["15 Minuten", "30 Minuten", "60 Minuten"])
     freq = {"15 Minuten": "15min", "30 Minuten": "30min", "60 Minuten": "60min"}[interval_choice]
 
@@ -142,7 +143,7 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
             
-            # Erstelle Future DataFrame basierend auf der ausgewählten Datumsauswahl und Frequenz
+            # Erstelle Future DataFrame basierend auf dem automatisch gesetzten Startdatum und dem angegebenen Enddatum
             future_dates = pd.date_range(start=forecast_start, end=forecast_end, freq=freq)
             future = pd.DataFrame({'ds': future_dates})
             periods = len(future_dates)
