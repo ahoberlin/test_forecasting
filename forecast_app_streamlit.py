@@ -100,6 +100,29 @@ if uploaded_file is not None:
             st.write(data.head())
             st.session_state['data'] = data
 
+# Neue Einstellung: Manuelle Eingabe der monatlichen Volumen
+monatsvolumen_text = st.sidebar.text_area(
+    "Monatsvolumen (kommagetrennt oder zeilenweise eingeben)",
+    value="100, 200, 150, 300"
+)
+if monatsvolumen_text:
+    try:
+        # Ersetze Zeilenumbrüche durch Kommata und parse in Float-Werte
+        vol_list = [float(x.strip()) for x in monatsvolumen_text.replace("\n", ",").split(",") if x.strip() != ""]
+        vol_df = pd.DataFrame({
+            "Monat": [f"Monat {i}" for i in range(1, len(vol_list)+1)],
+            "Volumen": vol_list
+        })
+    except Exception as e:
+        st.error("Fehler beim Parsen der Monatsvolumen: " + str(e))
+else:
+    vol_df = pd.DataFrame()
+
+# Unterhalb der Datenvorschau wird die Tabelle mit den manuell eingegebenen Monatsvolumen angezeigt
+if not vol_df.empty:
+    st.write("### Monatsvolumen")
+    st.table(vol_df)
+
 # Forecast-Horizont: Kein Schieberegler mehr, sondern nur das Enddatum wird angegeben.
 forecast_horizon = None
 if 'data' in st.session_state and st.session_state['data'] is not None:
