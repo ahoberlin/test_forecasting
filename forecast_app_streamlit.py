@@ -86,11 +86,9 @@ if uploaded_file is not None:
     if data.empty:
         st.sidebar.error("❌ Die hochgeladene Datei ist leer.")
     else:
-        # Spalten der hochgeladenen Datei ermitteln
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
-        # Konvertiere das ausgewählte Datums-Feld in datetime
         data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
         if data['ds'].isnull().all():
             st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
@@ -102,7 +100,7 @@ if uploaded_file is not None:
             st.session_state['data'] = data
 
 # ─────────────────────────────
-# Bereich: Manuelle Monatsvolumen mit Monat und Jahr und Bearbeitung
+# Bereich: Manuelle Monatsvolumen (Einträge mit Monat, Jahr und Volumen)
 # ─────────────────────────────
 st.sidebar.subheader("Manuelle Monatsvolumen")
 with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
@@ -123,14 +121,13 @@ with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
         })
         st.success("Eintrag hinzugefügt!")
 
-# Falls bereits manuelle Monatsvolumen vorhanden sind, diese editierbar anzeigen
+# Falls bereits manuelle Monatsvolumen vorhanden sind, interaktiv bearbeitbar anzeigen
 if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     st.write("### Manuelle Monatsvolumen (bearbeitbar)")
     vol_df = pd.DataFrame(st.session_state["manual_volumes"])
-    # Mit st.experimental_data_editor können die Einträge interaktiv angepasst werden
-    vol_df = st.experimental_data_editor(vol_df, num_rows="dynamic", key="volumes_editor")
+    # Verwende st.data_editor (in neueren Streamlit-Versionen) zur interaktiven Bearbeitung
+    vol_df = st.data_editor(vol_df, num_rows="dynamic", key="volumes_editor")
     st.table(vol_df)
-    # Aktualisiere den Session-State mit den editierten Daten
     st.session_state["manual_volumes"] = vol_df.to_dict("records")
 
 # ─────────────────────────────
@@ -148,7 +145,7 @@ else:
     forecast_horizon = DEFAULT_CONFIG["forecast_horizon"]
 
 # ─────────────────────────────
-# Weitere Forecast-Einstellungen
+# Bereich: Weitere Forecast-Einstellungen
 # ─────────────────────────────
 api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
 latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
@@ -157,7 +154,7 @@ changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01
 seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
 
 # ─────────────────────────────
-# Forecast-Berechnung und Visualisierung
+# Bereich: Forecast-Berechnung und Visualisierung
 # ─────────────────────────────
 if 'data' in st.session_state and st.session_state['data'] is not None and forecast_horizon > 0:
     if st.button("🚀 Forecast starten"):
@@ -165,7 +162,7 @@ if 'data' in st.session_state and st.session_state['data'] is not None and forec
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
             # Erstelle Future DataFrame basierend auf dem berechneten Forecast-Horizont
             future = model.make_future_dataframe(periods=forecast_horizon)
-            # Falls zusätzliche Regressoren vorhanden sind, diese hinzufügen (hier simuliert anhand der letzten Werte)
+            # Zusätzliche Regressoren hinzufügen (hier simuliert anhand der letzten Werte)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state['data'].columns:
                     if len(st.session_state['data'][col]) >= forecast_horizon:
