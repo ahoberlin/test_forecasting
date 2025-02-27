@@ -200,9 +200,9 @@ def main():
         }
         vol_df["Month_Year"] = vol_df["Jahr"].astype(str) + "-" + vol_df["Monat"].map(month_map)
         
-        # Falls Forecast-Daten vorliegen, aggregiere Forecast-Monatsvolumen
+        # Falls Forecast-Daten vorliegen, aggregiere Forecast-Monatsvolumen (ohne manuelle Anpassung)
         if "forecast" in st.session_state:
-            forecast_df = st.session_state["forecast"]
+            forecast_df = st.session_state["forecast_original"] if "forecast_original" in st.session_state else st.session_state["forecast"]
             last_hist_date = st.session_state["data"]["ds"].max()
             forecast_future = forecast_df[forecast_df["ds"] > last_hist_date]
             if not forecast_future.empty:
@@ -259,6 +259,8 @@ def main():
                         else:
                             future[col] = np.nan
                 forecast = model.predict(future)
+                # Speichere den ursprünglichen Forecast vor manueller Skalierung für die Vergleichstabelle
+                st.session_state["forecast_original"] = forecast.copy()
                 
                 # Falls manuelle Monatsvolumen für Forecast aktiviert sind, passe die täglichen Forecast-Werte an
                 if "manual_volumes" in st.session_state:
