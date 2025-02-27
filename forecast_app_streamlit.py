@@ -76,7 +76,7 @@ st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
 # ─────────────────────────────
-# Datenquelle: Datei (CSV/Excel) oder Google Sheets mit Filterung
+# Bereich: Daten Upload, Spaltenzuordnung & Filterung
 # ─────────────────────────────
 st.sidebar.subheader("Daten Upload & Filterung")
 data_source = st.sidebar.radio("Datenquelle", options=["Datei (CSV/Excel)", "Google Sheets"], key="data_source")
@@ -102,6 +102,8 @@ if data_source == "Datei (CSV/Excel)":
                 st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
             else:
                 data['y'] = data[y_col]
+                # Aggregiere untertägige Daten auf Tagesbasis:
+                data['ds'] = data['ds'].dt.floor('D')
                 filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
                 if filter_field != "Keine Filterung":
                     unique_vals = sorted(data[filter_field].dropna().unique().tolist())
@@ -137,6 +139,8 @@ elif data_source == "Google Sheets":
                     st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
                 else:
                     data['y'] = data[y_col]
+                    # Aggregiere untertägige Daten auf Tagesbasis:
+                    data['ds'] = data['ds'].dt.floor('D')
                     filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
                     if filter_field != "Keine Filterung":
                         unique_vals = sorted(data[filter_field].dropna().unique().tolist())
@@ -153,7 +157,7 @@ elif data_source == "Google Sheets":
         st.info("Bitte geben Sie die Google Sheets URL ein.")
 
 # ─────────────────────────────
-# Bereich: Manuelle Monatsvolumen (mit Einträgen, Checkbox und interaktiver Bearbeitung)
+# Manuelle Monatsvolumen (Einträge mit Monat, Jahr, Volumen und Checkbox)
 # ─────────────────────────────
 st.sidebar.subheader("Manuelle Monatsvolumen")
 with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
@@ -213,7 +217,7 @@ if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     st.table(merged_vol[["Monat", "Jahr", "Manuelles Volumen", "Forecast Volumen", "Manuell für Forecast"]])
 
 # ─────────────────────────────
-# Bereich: Forecast-Horizont (Enddatum) und Forecast-Frequenz (z.B. D, 60min, 30min, 15min)
+# Forecast-Horizont und Frequenz
 # ─────────────────────────────
 forecast_horizon = None
 if "data" in st.session_state and st.session_state["data"] is not None:
@@ -226,11 +230,10 @@ if "data" in st.session_state and st.session_state["data"] is not None:
 else:
     forecast_horizon = DEFAULT_CONFIG["forecast_horizon"]
 
-# Auswahl der Forecast-Frequenz (um auch untertägige Daten zu unterstützen)
 freq_option = st.sidebar.selectbox("Forecast-Frequenz", options=["D", "60min", "30min", "15min"], index=0)
 
 # ─────────────────────────────
-# Bereich: Weitere Forecast-Einstellungen
+# Weitere Forecast-Einstellungen
 # ─────────────────────────────
 api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
 latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
@@ -239,7 +242,7 @@ changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01
 seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
 
 # ─────────────────────────────
-# Bereich: Forecast-Berechnung und Visualisierung
+# Forecast-Berechnung und Visualisierung
 # ─────────────────────────────
 if "data" in st.session_state and st.session_state["data"] is not None and forecast_horizon > 0:
     if st.button("🚀 Forecast starten"):
@@ -304,3 +307,7 @@ if "data" in st.session_state and st.session_state["data"] is not None and forec
                 file_name="forecast_results.csv",
                 mime="text/csv"
             )
+
+if __name__ == "__main__":
+    st.set_page_config(page_title="Forecasting Tool", layout="wide")
+    main()
