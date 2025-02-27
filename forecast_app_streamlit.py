@@ -165,17 +165,16 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
             fig.add_scatter(x=st.session_state['data']['ds'], y=st.session_state['data']['y'], mode='lines', name="Tatsächliche Werte")
             st.plotly_chart(fig)
             
-            # Performance-Metriken berechnen: Filtere Forecast auf den historischen Zeitraum
-            last_date = st.session_state['data']['ds'].max()
-            hist_forecast = forecast[forecast['ds'] <= last_date]
-            if len(hist_forecast) != len(st.session_state['data']):
-                st.write("⚠️ Warnung: Unterschiedliche Anzahl historischer Datenpunkte. Die Fehlerberechnung kann abweichen.")
-            actual = st.session_state['data']['y'].reset_index(drop=True)
-            predicted = hist_forecast['yhat'].reset_index(drop=True)
-            mae = mean_absolute_error(actual, predicted)
-            mse = mean_squared_error(actual, predicted)
-            r2 = r2_score(actual, predicted)
-            st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
+            # Performance-Metriken berechnen: Merge der historischen Daten mit Forecast-Daten anhand von 'ds'
+            historical = st.session_state['data'][['ds', 'y']]
+            merged = pd.merge(historical, forecast[['ds', 'yhat']], on='ds', how='inner')
+            if merged.empty:
+                st.write("⚠️ Es gibt keine überlappenden Zeitpunkte zwischen den historischen Daten und dem Forecast. Performance-Metriken können nicht berechnet werden.")
+            else:
+                mae = mean_absolute_error(merged['y'], merged['yhat'])
+                mse = mean_squared_error(merged['y'], merged['yhat'])
+                r2 = r2_score(merged['y'], merged['yhat'])
+                st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
             
             # Export-Funktion
             if st.button("💾 Export als CSV"):
