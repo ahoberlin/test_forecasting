@@ -66,7 +66,6 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
         changepoint_prior_scale=changepoint_prior_scale,
         seasonality_prior_scale=seasonality_prior_scale
     )
-    # Zusätzliche Regressoren hinzufügen, falls vorhanden
     for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
         if col in data.columns:
             model.add_regressor(col)
@@ -77,7 +76,7 @@ st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
 # ─────────────────────────────
-# Bereich: Daten Upload & Spaltenzuordnung
+# Daten Upload & Spaltenzuordnung
 # ─────────────────────────────
 st.sidebar.subheader("Daten Upload & Spaltenzuordnung")
 uploaded_file = st.sidebar.file_uploader("📂 Zeitreihendaten hochladen (CSV)", type="csv")
@@ -100,7 +99,7 @@ if uploaded_file is not None:
             st.session_state['data'] = data
 
 # ─────────────────────────────
-# Bereich: Manuelle Monatsvolumen (Einträge mit Monat, Jahr und Volumen)
+# Manuelle Monatsvolumen (Einträge mit Monat, Jahr, Volumen und Checkbox)
 # ─────────────────────────────
 st.sidebar.subheader("Manuelle Monatsvolumen")
 with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
@@ -110,6 +109,7 @@ with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
     ])
     year = st.number_input("Jahr", min_value=2000, max_value=2100, value=datetime.now().year, step=1)
     volume = st.number_input("Volumen", min_value=0.0, value=100.0, step=0.1)
+    use_manual = st.checkbox("Manuelles Volumen für Forecast verwenden", value=False)
     submitted = st.form_submit_button("Eintrag hinzufügen")
     if submitted:
         if "manual_volumes" not in st.session_state:
@@ -117,39 +117,22 @@ with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
         st.session_state["manual_volumes"].append({
             "Monat": month,
             "Jahr": int(year),
-            "Volumen": volume
+            "Volumen": volume,
+            "Manuell für Forecast": use_manual
         })
         st.success("Eintrag hinzugefügt!")
 
-# Falls bereits manuelle Monatsvolumen vorhanden sind, interaktiv bearbeitbar anzeigen
+# Interaktive Bearbeitung der manuellen Monatsvolumen
 if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     st.write("### Manuelle Monatsvolumen (bearbeitbar)")
     vol_df = pd.DataFrame(st.session_state["manual_volumes"])
-    # Füge eine neue Spalte hinzu, die angibt, ob das manuelle Volumen für den Forecast genutzt werden soll.
     if "Manuell für Forecast" not in vol_df.columns:
         vol_df["Manuell für Forecast"] = False
-    # Nutze st.data_editor zur interaktiven Bearbeitung
     vol_df = st.data_editor(vol_df, num_rows="dynamic", key="volumes_editor")
     st.table(vol_df)
     st.session_state["manual_volumes"] = vol_df.to_dict("records")
     
-    # Erstelle die Vergleichstabelle: Manuelle vs. Forecast Monatsvolumen
-    # Zuerst: Berechne aus den Forecast-Daten (falls vorhanden) das aggregierte Monatsvolumen.
-    if "forecast" in st.session_state:
-        forecast_df = st.session_state["forecast"]
-        last_hist_date = st.session_state["data"]["ds"].max()
-        # Filtere nur die Forecast-Daten, die nach dem letzten historischen Datum liegen.
-        forecast_future = forecast_df[forecast_df["ds"] > last_hist_date]
-        if not forecast_future.empty:
-            forecast_future["Month_Year"] = forecast_future["ds"].dt.to_period("M")
-            forecast_monthly = forecast_future.groupby("Month_Year")["yhat"].sum().reset_index()
-            forecast_monthly["Month_Year"] = forecast_monthly["Month_Year"].astype(str)
-        else:
-            forecast_monthly = pd.DataFrame(columns=["Month_Year", "yhat"])
-    else:
-        forecast_monthly = pd.DataFrame(columns=["Month_Year", "yhat"])
-    
-    # Erstelle in vol_df eine Spalte "Month_Year" (Format "YYYY-MM")
+    # Erzeuge Spalte "Month_Year" in vol_df (Format "YYYY-MM")
     month_map = {
         "Januar": "01", "Februar": "02", "März": "03", "April": "04",
         "Mai": "05", "Juni": "06", "Juli": "07", "August": "08",
@@ -157,23 +140,33 @@ if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     }
     vol_df["Month_Year"] = vol_df["Jahr"].astype(str) + "-" + vol_df["Monat"].map(month_map)
     
-    # Merge manuelle Eingaben mit den Forecast-Werten
+    # Falls Forecast-Daten vorliegen, aggregiere Forecast-Monatsvolumen
+    if "forecast" in st.session_state:
+        forecast_df = st.session_state["forecast"]
+        last_hist_date = st.session_state["data"]["ds"].max()
+        forecast_future = forecast_df[forecast_df["ds"] > last_hist_date]
+        if not forecast_future.empty:
+            forecast_future["Month_Year"] = forecast_future["ds"].dt.to_period("M").astype(str)
+            forecast_monthly = forecast_future.groupby("Month_Year")["yhat"].sum().reset_index()
+        else:
+            forecast_monthly = pd.DataFrame(columns=["Month_Year", "yhat"])
+    else:
+        forecast_monthly = pd.DataFrame(columns=["Month_Year", "yhat"])
+    
+    # Merge manuelle Eingaben mit Forecast-Werten
     merged_vol = pd.merge(vol_df, forecast_monthly, on="Month_Year", how="left")
     merged_vol.rename(columns={"Volumen": "Manuelles Volumen", "yhat": "Forecast Volumen"}, inplace=True)
-    # Falls kein Forecast vorhanden ist, ersetze NaN durch "Keine Daten"
     merged_vol["Forecast Volumen"] = merged_vol["Forecast Volumen"].fillna("Keine Daten")
-    
-    # Überschreibe Forecast Volumen mit manuellem Volumen, falls die Checkbox aktiviert ist
+    # Falls Checkbox aktiviert, soll als Forecast Volumen das manuelle Volumen genutzt werden
     merged_vol["Forecast Volumen"] = merged_vol.apply(
         lambda row: row["Manuelles Volumen"] if row["Manuell für Forecast"] else row["Forecast Volumen"],
         axis=1
     )
-    
     st.write("### Vergleich: Manuelle vs. Forecast Monatsvolumen")
     st.table(merged_vol[["Monat", "Jahr", "Manuelles Volumen", "Forecast Volumen", "Manuell für Forecast"]])
 
 # ─────────────────────────────
-# Bereich: Forecast-Horizont (Enddatum)
+# Forecast-Horizont (Enddatum)
 # ─────────────────────────────
 forecast_horizon = None
 if "data" in st.session_state and st.session_state["data"] is not None:
@@ -187,7 +180,7 @@ else:
     forecast_horizon = DEFAULT_CONFIG["forecast_horizon"]
 
 # ─────────────────────────────
-# Bereich: Weitere Forecast-Einstellungen
+# Weitere Forecast-Einstellungen
 # ─────────────────────────────
 api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
 latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
@@ -196,7 +189,7 @@ changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01
 seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
 
 # ─────────────────────────────
-# Bereich: Forecast-Berechnung und Visualisierung
+# Forecast-Berechnung und Visualisierung
 # ─────────────────────────────
 if "data" in st.session_state and st.session_state["data"] is not None and forecast_horizon > 0:
     if st.button("🚀 Forecast starten"):
@@ -210,6 +203,31 @@ if "data" in st.session_state and st.session_state["data"] is not None and forec
                     else:
                         future[col] = np.nan
             forecast = model.predict(future)
+            
+            # Falls manuelle Monatsvolumen für Forecast aktiviert sind, passe die täglichen Forecast-Werte an
+            if "manual_volumes" in st.session_state:
+                # Füge eine Spalte "Month_Year" im Forecast hinzu
+                forecast["Month_Year"] = forecast["ds"].dt.to_period("M").astype(str)
+                # Mapping für Monatsnamen
+                month_map = {
+                    "Januar": "01", "Februar": "02", "März": "03", "April": "04",
+                    "Mai": "05", "Juni": "06", "Juli": "07", "August": "08",
+                    "September": "09", "Oktober": "10", "November": "11", "Dezember": "12"
+                }
+                for entry in st.session_state["manual_volumes"]:
+                    if entry.get("Manuell für Forecast", False):
+                        month_year = f"{entry['Jahr']}-{month_map.get(entry['Monat'], '00')}"
+                        mask = forecast["Month_Year"] == month_year
+                        if mask.sum() > 0:
+                            sum_yhat = forecast.loc[mask, "yhat"].sum()
+                            if sum_yhat != 0:
+                                factor = entry["Volumen"] / sum_yhat
+                                forecast.loc[mask, "yhat"] *= factor
+                                if "yhat_lower" in forecast.columns:
+                                    forecast.loc[mask, "yhat_lower"] *= factor
+                                if "yhat_upper" in forecast.columns:
+                                    forecast.loc[mask, "yhat_upper"] *= factor
+            
             st.session_state["forecast"] = forecast
             st.success("✅ Forecast erfolgreich erstellt!")
             
