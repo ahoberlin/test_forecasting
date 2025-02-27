@@ -9,7 +9,7 @@ from prophet import Prophet
 import plotly.express as px
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from joblib import Parallel, delayed
-import matplotlib.pyplot as plt  # Wird für die Komponenten-Plots benötigt
+import matplotlib.pyplot as plt  # Für die Komponenten-Plots
 
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
@@ -76,7 +76,7 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
 st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
-# Gesonderte Sektion: Daten Upload & Spaltenzuordnung
+# Daten Upload & Spaltenzuordnung
 st.sidebar.subheader("Daten Upload & Spaltenzuordnung")
 uploaded_file = st.sidebar.file_uploader("📂 Zeitreihendaten hochladen (CSV)", type="csv")
 if uploaded_file is not None:
@@ -124,7 +124,7 @@ if 'data' in st.session_state and st.session_state['data'] is not None and forec
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
-            # Erstelle Future DataFrame mithilfe des berechneten Forecast-Horizonts
+            # Erstelle Future DataFrame anhand des berechneten Forecast-Horizonts
             future = model.make_future_dataframe(periods=forecast_horizon)
             # Falls zusätzliche Regressoren vorhanden sind, diese hinzufügen (hier simuliert anhand der letzten Werte)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
@@ -159,7 +159,11 @@ if 'data' in st.session_state and st.session_state['data'] is not None and forec
                 r2 = r2_score(merged['y'], merged['yhat'])
                 st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
             
-            # Export-Funktion
-            if st.button("💾 Export als CSV"):
-                forecast.to_csv("forecast_results.csv", index=False)
-                st.success("✅ CSV exportiert!")
+            # Download-Schaltfläche für die CSV-Datei
+            csv = forecast.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="💾 CSV herunterladen",
+                data=csv,
+                file_name="forecast_results.csv",
+                mime="text/csv"
+            )
