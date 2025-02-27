@@ -33,12 +33,24 @@ def save_config(config):
         json.dump(config, f, indent=4)
 
 # =============================================================================
+# Funktion: train_model (muss vor der Verwendung definiert sein)
+# =============================================================================
+@st.cache_data
+def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
+    model = Prophet(
+        changepoint_prior_scale=changepoint_prior_scale,
+        seasonality_prior_scale=seasonality_prior_scale
+    )
+    for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
+        if col in data.columns:
+            model.add_regressor(col)
+    model.fit(data)
+    return model
+
+# =============================================================================
 # Modul: Daten laden und filtern
 # =============================================================================
 def load_data():
-    """
-    Lädt die Daten aus einer Datei (CSV/Excel) oder aus Google Sheets, wendet einen optionalen Filter an und gibt den DataFrame zurück.
-    """
     try:
         data_source = st.sidebar.radio("Datenquelle", options=["Datei (CSV/Excel)", "Google Sheets"], key="data_source")
         data = None
@@ -69,7 +81,6 @@ def load_data():
         if data is None or data.empty:
             st.sidebar.error("❌ Die Datenquelle liefert keine Daten.")
             return None
-        # Spaltenauswahl
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
@@ -78,9 +89,7 @@ def load_data():
             st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
             return None
         data['y'] = data[y_col]
-        # Aggregiere untertägige Daten auf Tagesbasis
         data['ds'] = data['ds'].dt.floor('D')
-        # Optionaler Filter
         filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
         if filter_field != "Keine Filterung":
             unique_vals = sorted(data[filter_field].dropna().unique().tolist())
@@ -99,10 +108,6 @@ def load_data():
 # Modul: Manuelle Monatsvolumen verarbeiten
 # =============================================================================
 def process_manual_volumes():
-    """
-    Ermöglicht das Hinzufügen und Bearbeiten manueller Monatsvolumen.
-    Gibt ein DataFrame mit manuellen Einträgen (inkl. Spalte 'Month_Year') zurück.
-    """
     try:
         st.sidebar.subheader("Manuelle Monatsvolumen")
         with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
@@ -132,7 +137,6 @@ def process_manual_volumes():
             vol_df = st.data_editor(vol_df, num_rows="dynamic", key="volumes_editor")
             st.table(vol_df)
             st.session_state["manual_volumes"] = vol_df.to_dict("records")
-            # Erstelle Spalte "Month_Year" im Format "YYYY-MM"
             month_map = {
                 "Januar": "01", "Februar": "02", "März": "03", "April": "04",
                 "Mai": "05", "Juni": "06", "Juli": "07", "August": "08",
@@ -171,16 +175,13 @@ def main():
     st.title("📈 Intelligentes Forecasting Tool")
     st.sidebar.header("Einstellungen")
     
-    # Daten laden
     data = load_data()
     if data is None:
         return
     st.session_state['data'] = data
     
-    # Manuelle Monatsvolumen verarbeiten
     vol_df = process_manual_volumes()
     
-    # Forecast-Horizont und Frequenz definieren
     try:
         last_date = st.session_state["data"]["ds"].max().date()
         st.sidebar.write("Letztes Datum in den historischen Daten:", last_date)
@@ -195,14 +196,12 @@ def main():
     
     freq_option = st.sidebar.selectbox("Forecast-Frequenz", options=["D", "60min", "30min", "15min"], index=0)
     
-    # Weitere Forecast-Einstellungen
     api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
     latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
     longitude = st.sidebar.number_input("🌍 Längengrad", value=13.4050)
     changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01, 0.5, 0.05)
     seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
     
-    # Forecast starten
     if st.button("🚀 Forecast starten"):
         model, forecast = build_forecast(st.session_state["data"], forecast_horizon, freq_option,
                                          changepoint_prior_scale, seasonality_prior_scale)
@@ -211,7 +210,7 @@ def main():
         # Speichere den Original-Forecast (ohne manuelle Skalierung) für die Vergleichstabelle
         st.session_state["forecast_original"] = forecast.copy()
         
-        # Anwenden manueller Anpassungen (dies beeinflusst den Forecast, nicht die Vergleichstabelle)
+        # Anwenden manueller Anpassungen (diese Skalierung beeinflusst den Forecast, nicht die Vergleichstabelle)
         if "manual_volumes" in st.session_state:
             forecast["Month_Year"] = forecast["ds"].dt.to_period("M").astype(str)
             month_map = {
@@ -236,10 +235,10 @@ def main():
         st.session_state["forecast"] = forecast
         st.success("✅ Forecast erfolgreich erstellt!")
         
-        # Visualisierungen
         st.subheader("📉 Forecast-Visualisierung")
         fig = px.line(forecast, x="ds", y="yhat", title="🔮 Prognose")
-        fig.add_scatter(x=st.session_state["data"]["ds"], y=st.session_state["data"]["y"], mode="lines", name="Tatsächliche Werte")
+        fig.add_scatter(x=st.session_state["data"]["ds"], y=st.session_state["data"]["y"],
+                        mode="lines", name="Tatsächliche Werte")
         st.plotly_chart(fig)
         
         st.subheader("📊 Prophet-Komponenten")
@@ -269,7 +268,7 @@ def main():
             forecast_orig = st.session_state["forecast_original"]
             if not forecast_orig.empty:
                 forecast_orig["Month_Year"] = forecast_orig["ds"].dt.to_period("M").astype(str)
-                vol_df = process_manual_volumes()  # aktuelles DataFrame der manuellen Einträge
+                vol_df = process_manual_volumes()  # aktuelles DF der manuellen Einträge
                 merged_vol = pd.merge(vol_df, 
                                         forecast_orig.groupby("Month_Year")["yhat"].sum().reset_index(),
                                         on="Month_Year", how="left")
