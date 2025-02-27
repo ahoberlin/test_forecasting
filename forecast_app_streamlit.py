@@ -9,12 +9,12 @@ from prophet import Prophet
 import plotly.express as px
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from joblib import Parallel, delayed
-import matplotlib.pyplot as plt  # Für die Prophet-Komponenten-Plots
+import matplotlib.pyplot as plt  # Wird für die Komponenten-Plots benötigt
 
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "forecast_horizon": 30,  # Fallback-Wert (wird nicht mehr aktiv genutzt)
+    "forecast_horizon": 30,  # Fallback-Wert (wird nicht mehr aktiv genutzt, wenn Daten vorliegen)
     "api_keys": {"openweathermap": "Ihr_API_Schlüssel"},
     "location": {"latitude": 52.5200, "longitude": 13.4050}
 }
@@ -76,7 +76,7 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
 st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
-# Daten Upload & Spaltenzuordnung
+# Gesonderte Sektion: Daten Upload & Spaltenzuordnung
 st.sidebar.subheader("Daten Upload & Spaltenzuordnung")
 uploaded_file = st.sidebar.file_uploader("📂 Zeitreihendaten hochladen (CSV)", type="csv")
 if uploaded_file is not None:
@@ -84,9 +84,12 @@ if uploaded_file is not None:
     if data.empty:
         st.sidebar.error("❌ Die hochgeladene Datei ist leer.")
     else:
+        # Spalten der hochgeladenen Datei ermitteln
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
+        
+        # Konvertiere das ausgewählte Datums-Feld in datetime
         data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
         if data['ds'].isnull().all():
             st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
@@ -98,11 +101,14 @@ if uploaded_file is not None:
             st.session_state['data'] = data
 
 # Forecast-Horizont: Kein Schieberegler mehr, sondern nur das Enddatum wird angegeben.
+forecast_horizon = None
 if 'data' in st.session_state and st.session_state['data'] is not None:
     last_date = st.session_state['data']['ds'].max().date()
     st.sidebar.write("Letztes Datum in den historischen Daten:", last_date)
     forecast_end = st.sidebar.date_input("Enddatum für Forecast-Horizont", value=last_date + timedelta(days=30))
     forecast_horizon = (forecast_end - last_date).days
+    if forecast_horizon <= 0:
+        st.error("Das Enddatum muss nach dem letzten Datum der historischen Daten liegen.")
 else:
     forecast_horizon = DEFAULT_CONFIG["forecast_horizon"]
 
@@ -113,12 +119,14 @@ longitude = st.sidebar.number_input("🌍 Längengrad", value=13.4050)
 changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01, 0.5, 0.05)
 seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
 
-# Forecast-Berechnung, falls Daten vorhanden sind
-if 'data' in st.session_state and st.session_state['data'] is not None:
+# Forecast-Berechnung, falls Daten vorhanden sind und forecast_horizon gültig ist
+if 'data' in st.session_state and st.session_state['data'] is not None and forecast_horizon > 0:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
+            # Erstelle Future DataFrame mithilfe des berechneten Forecast-Horizonts
             future = model.make_future_dataframe(periods=forecast_horizon)
+            # Falls zusätzliche Regressoren vorhanden sind, diese hinzufügen (hier simuliert anhand der letzten Werte)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state['data'].columns:
                     if len(st.session_state['data'][col]) >= forecast_horizon:
