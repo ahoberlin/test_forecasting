@@ -33,7 +33,7 @@ def save_config(config):
         json.dump(config, f, indent=4)
 
 # =============================================================================
-# Funktion: train_model (muss vor der Verwendung definiert sein)
+# Funktion: train_model (wird benötigt, bevor sie genutzt wird)
 # =============================================================================
 @st.cache_data
 def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
@@ -89,6 +89,7 @@ def load_data():
             st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
             return None
         data['y'] = data[y_col]
+        # Aggregiere untertägige Daten auf Tagesbasis
         data['ds'] = data['ds'].dt.floor('D')
         filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
         if filter_field != "Keine Filterung":
@@ -108,9 +109,14 @@ def load_data():
 # Modul: Manuelle Monatsvolumen verarbeiten
 # =============================================================================
 def process_manual_volumes():
+    """
+    Ermöglicht das Hinzufügen und Bearbeiten manueller Monatsvolumen.
+    Gibt ein DataFrame mit manuellen Einträgen (inkl. Spalte 'Month_Year') zurück.
+    """
     try:
         st.sidebar.subheader("Manuelle Monatsvolumen")
-        with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
+        # Verwende einen eindeutigen Form-Key
+        with st.sidebar.form("manual_volumes_form_unique", clear_on_submit=True):
             month = st.selectbox("Monat", options=[
                 "Januar", "Februar", "März", "April", "Mai", "Juni",
                 "Juli", "August", "September", "Oktober", "November", "Dezember"
@@ -207,7 +213,8 @@ def main():
                                          changepoint_prior_scale, seasonality_prior_scale)
         if forecast is None:
             return
-        # Speichere den Original-Forecast (ohne manuelle Skalierung) für die Vergleichstabelle
+        
+        # Speichere den Original-Forecast (ohne manuelle Skalierung) für Vergleichstabelle
         st.session_state["forecast_original"] = forecast.copy()
         
         # Anwenden manueller Anpassungen (diese Skalierung beeinflusst den Forecast, nicht die Vergleichstabelle)
@@ -237,8 +244,7 @@ def main():
         
         st.subheader("📉 Forecast-Visualisierung")
         fig = px.line(forecast, x="ds", y="yhat", title="🔮 Prognose")
-        fig.add_scatter(x=st.session_state["data"]["ds"], y=st.session_state["data"]["y"],
-                        mode="lines", name="Tatsächliche Werte")
+        fig.add_scatter(x=st.session_state["data"]["ds"], y=st.session_state["data"]["y"], mode="lines", name="Tatsächliche Werte")
         st.plotly_chart(fig)
         
         st.subheader("📊 Prophet-Komponenten")
@@ -268,7 +274,14 @@ def main():
             forecast_orig = st.session_state["forecast_original"]
             if not forecast_orig.empty:
                 forecast_orig["Month_Year"] = forecast_orig["ds"].dt.to_period("M").astype(str)
-                vol_df = process_manual_volumes()  # aktuelles DF der manuellen Einträge
+                # Verwende das bereits verarbeitete DataFrame aus process_manual_volumes(), um doppelte Formaufrufe zu vermeiden.
+                vol_df = pd.DataFrame(st.session_state["manual_volumes"])
+                month_map = {
+                    "Januar": "01", "Februar": "02", "März": "03", "April": "04",
+                    "Mai": "05", "Juni": "06", "Juli": "07", "August": "08",
+                    "September": "09", "Oktober": "10", "November": "11", "Dezember": "12"
+                }
+                vol_df["Month_Year"] = vol_df["Jahr"].astype(str) + "-" + vol_df["Monat"].map(month_map)
                 merged_vol = pd.merge(vol_df, 
                                         forecast_orig.groupby("Month_Year")["yhat"].sum().reset_index(),
                                         on="Month_Year", how="left")
