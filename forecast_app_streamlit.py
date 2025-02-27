@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt  # Für die Komponenten-Plots
 # Standard-Konfigurationsdatei
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "forecast_horizon": 30,  # Fallback-Wert (wird nicht mehr aktiv genutzt, wenn Daten vorliegen)
+    "forecast_horizon": 30,  # Fallback-Wert, falls keine Daten vorliegen
     "api_keys": {"openweathermap": "Ihr_API_Schlüssel"},
     "location": {"latitude": 52.5200, "longitude": 13.4050}
 }
@@ -29,7 +29,7 @@ def save_config(config):
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
 
-# Wetterdaten effizient abrufen
+# Funktion zum Abrufen von Wetterdaten (Beispiel)
 def fetch_weather_data(start_date, end_date, lat, lon, api_key):
     date_range = pd.date_range(start=start_date, end=end_date)
     def fetch_single_day(date):
@@ -76,7 +76,7 @@ st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
 # ─────────────────────────────
-# Daten Upload & Filterung (CSV/Excel oder Google Sheets)
+# Datenquelle: Datei (CSV/Excel) oder Google Sheets mit Filterung
 # ─────────────────────────────
 st.sidebar.subheader("Daten Upload & Filterung")
 data_source = st.sidebar.radio("Datenquelle", options=["Datei (CSV/Excel)", "Google Sheets"], key="data_source")
@@ -102,7 +102,6 @@ if data_source == "Datei (CSV/Excel)":
                 st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
             else:
                 data['y'] = data[y_col]
-                # Filterfeld auswählen (optional)
                 filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
                 if filter_field != "Keine Filterung":
                     unique_vals = sorted(data[filter_field].dropna().unique().tolist())
@@ -138,7 +137,6 @@ elif data_source == "Google Sheets":
                     st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
                 else:
                     data['y'] = data[y_col]
-                    # Optional: Filterfeld auswählen
                     filter_field = st.sidebar.selectbox("Filterfeld (optional)", ["Keine Filterung"] + columns, key="filter_field")
                     if filter_field != "Keine Filterung":
                         unique_vals = sorted(data[filter_field].dropna().unique().tolist())
@@ -155,7 +153,7 @@ elif data_source == "Google Sheets":
         st.info("Bitte geben Sie die Google Sheets URL ein.")
 
 # ─────────────────────────────
-# Bereich: Manuelle Monatsvolumen (mit Einträgen, Checkbox, und interaktiver Bearbeitung)
+# Bereich: Manuelle Monatsvolumen (mit Einträgen, Checkbox und interaktiver Bearbeitung)
 # ─────────────────────────────
 st.sidebar.subheader("Manuelle Monatsvolumen")
 with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
@@ -187,7 +185,7 @@ if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     st.table(vol_df)
     st.session_state["manual_volumes"] = vol_df.to_dict("records")
     
-    # Erstelle in vol_df eine Spalte "Month_Year" im Format "YYYY-MM"
+    # Erstelle Spalte "Month_Year" (Format "YYYY-MM")
     month_map = {
         "Januar": "01", "Februar": "02", "März": "03", "April": "04",
         "Mai": "05", "Juni": "06", "Juli": "07", "August": "08",
@@ -215,7 +213,7 @@ if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     st.table(merged_vol[["Monat", "Jahr", "Manuelles Volumen", "Forecast Volumen", "Manuell für Forecast"]])
 
 # ─────────────────────────────
-# Bereich: Forecast-Horizont (Enddatum)
+# Bereich: Forecast-Horizont (Enddatum) und Forecast-Frequenz (z.B. D, 60min, 30min, 15min)
 # ─────────────────────────────
 forecast_horizon = None
 if "data" in st.session_state and st.session_state["data"] is not None:
@@ -227,6 +225,9 @@ if "data" in st.session_state and st.session_state["data"] is not None:
         st.error("Das Enddatum muss nach dem letzten Datum der historischen Daten liegen.")
 else:
     forecast_horizon = DEFAULT_CONFIG["forecast_horizon"]
+
+# Auswahl der Forecast-Frequenz (um auch untertägige Daten zu unterstützen)
+freq_option = st.sidebar.selectbox("Forecast-Frequenz", options=["D", "60min", "30min", "15min"], index=0)
 
 # ─────────────────────────────
 # Bereich: Weitere Forecast-Einstellungen
@@ -244,7 +245,7 @@ if "data" in st.session_state and st.session_state["data"] is not None and forec
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state["data"], changepoint_prior_scale, seasonality_prior_scale)
-            future = model.make_future_dataframe(periods=forecast_horizon)
+            future = model.make_future_dataframe(periods=forecast_horizon, freq=freq_option)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state["data"].columns:
                     if len(st.session_state["data"][col]) >= forecast_horizon:
