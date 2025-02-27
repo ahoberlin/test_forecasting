@@ -89,10 +89,9 @@ if uploaded_file is not None:
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
-        # Hier wird das Format "JJ.MM.TT HH:MM:SS" explizit angegeben (z.B. "21.02.25 12:56:00")
-        data['ds'] = pd.to_datetime(data[ds_col], format="%y.%m.%d %H:%M:%S", errors='coerce')
+        data['ds'] = pd.to_datetime(data[ds_col], errors='coerce')
         if data['ds'].isnull().all():
-            st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte im Format JJ.MM.TT HH:MM:SS.")
+            st.sidebar.error("❌ Das ausgewählte Datums-Feld enthält keine gültigen Datumswerte.")
         else:
             data['y'] = data[y_col]
             st.sidebar.success("✅ Daten erfolgreich geladen!")
@@ -159,6 +158,7 @@ if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     merged_vol = pd.merge(vol_df, forecast_monthly, on="Month_Year", how="left")
     merged_vol.rename(columns={"Volumen": "Manuelles Volumen", "yhat": "Forecast Volumen"}, inplace=True)
     merged_vol["Forecast Volumen"] = merged_vol["Forecast Volumen"].fillna("Keine Daten")
+    # Hier wird das Forecastvolumen nicht überschrieben, sondern so angezeigt wie es von Prophet berechnet wurde.
     st.write("### Vergleich: Manuelle vs. Forecast Monatsvolumen")
     st.table(merged_vol[["Monat", "Jahr", "Manuelles Volumen", "Forecast Volumen", "Manuell für Forecast"]])
 
@@ -201,7 +201,7 @@ if "data" in st.session_state and st.session_state["data"] is not None and forec
                         future[col] = np.nan
             forecast = model.predict(future)
             
-            # Falls manuelle Monatsvolumen für Forecast aktiviert sind, passe die täglichen Forecast-Werte an
+            # Falls manuelle Monatsvolumen aktiviert sind, passe die täglichen Forecast-Werte an
             if "manual_volumes" in st.session_state:
                 forecast["Month_Year"] = forecast["ds"].dt.to_period("M").astype(str)
                 month_map = {
@@ -222,7 +222,6 @@ if "data" in st.session_state and st.session_state["data"] is not None and forec
                                     forecast.loc[mask, "yhat_lower"] *= factor
                                 if "yhat_upper" in forecast.columns:
                                     forecast.loc[mask, "yhat_upper"] *= factor
-            
             st.session_state["forecast"] = forecast
             st.success("✅ Forecast erfolgreich erstellt!")
             
