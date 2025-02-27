@@ -80,7 +80,7 @@ def main():
     st.sidebar.header("Einstellungen")
     
     # ─────────────────────────────
-    # Datenquelle: Datei (CSV/Excel) oder Google Sheets mit Filterung
+    # Daten Upload & Filterung
     # ─────────────────────────────
     st.sidebar.subheader("Daten Upload & Filterung")
     data_source = st.sidebar.radio("Datenquelle", options=["Datei (CSV/Excel)", "Google Sheets"], key="data_source")
