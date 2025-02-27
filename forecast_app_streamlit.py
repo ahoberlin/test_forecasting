@@ -78,15 +78,7 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
 st.title("📈 Intelligentes Forecasting Tool")
 st.sidebar.header("Einstellungen")
 
-# Forecast-Einstellungen
-forecast_horizon = st.sidebar.slider("Forecast-Horizont (Tage)", 1, 365, 30)
-api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
-latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
-longitude = st.sidebar.number_input("🌍 Längengrad", value=13.4050)
-changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01, 0.5, 0.05)
-seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
-
-# Gesonderte Sektion: Daten Upload & Spaltenzuordnung
+# Gesonderte Sektion: Daten Upload & Spaltenzuordnung an oberster Stelle
 st.sidebar.subheader("Daten Upload & Spaltenzuordnung")
 uploaded_file = st.sidebar.file_uploader("📂 Zeitreihendaten hochladen (CSV)", type="csv")
 if uploaded_file is not None:
@@ -109,6 +101,14 @@ if uploaded_file is not None:
             st.write("### Datenvorschau")
             st.write(data.head())
             st.session_state['data'] = data
+
+# Forecast-Einstellungen
+forecast_horizon = st.sidebar.slider("Forecast-Horizont (Tage)", 1, 365, 30)
+api_key = st.sidebar.text_input("🔑 OpenWeatherMap API Key", type="password")
+latitude = st.sidebar.number_input("🌍 Breitengrad", value=52.5200)
+longitude = st.sidebar.number_input("🌍 Längengrad", value=13.4050)
+changepoint_prior_scale = st.sidebar.slider("🔄 Changepoint Prior Scale", 0.01, 0.5, 0.05)
+seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01, 10.0, 10.0)
 
 # Forecast-Berechnung, falls Daten vorhanden sind
 if 'data' in st.session_state and st.session_state['data'] is not None:
