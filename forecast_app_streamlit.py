@@ -102,7 +102,7 @@ if uploaded_file is not None:
             st.session_state['data'] = data
 
 # ─────────────────────────────
-# Bereich: Manuelle Monatsvolumen mit Monat und Jahr
+# Bereich: Manuelle Monatsvolumen mit Monat und Jahr und Bearbeitung
 # ─────────────────────────────
 st.sidebar.subheader("Manuelle Monatsvolumen")
 with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
@@ -123,11 +123,15 @@ with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
         })
         st.success("Eintrag hinzugefügt!")
 
-# Anzeige der manuellen Monatsvolumen als Tabelle
+# Falls bereits manuelle Monatsvolumen vorhanden sind, diese editierbar anzeigen
 if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
-    st.write("### Manuelle Monatsvolumen")
+    st.write("### Manuelle Monatsvolumen (bearbeitbar)")
     vol_df = pd.DataFrame(st.session_state["manual_volumes"])
+    # Mit st.experimental_data_editor können die Einträge interaktiv angepasst werden
+    vol_df = st.experimental_data_editor(vol_df, num_rows="dynamic", key="volumes_editor")
     st.table(vol_df)
+    # Aktualisiere den Session-State mit den editierten Daten
+    st.session_state["manual_volumes"] = vol_df.to_dict("records")
 
 # ─────────────────────────────
 # Bereich: Forecast-Horizont (Enddatum)
