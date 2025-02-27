@@ -125,17 +125,48 @@ with st.sidebar.form("manual_volumes_form", clear_on_submit=True):
 if "manual_volumes" in st.session_state and st.session_state["manual_volumes"]:
     st.write("### Manuelle Monatsvolumen (bearbeitbar)")
     vol_df = pd.DataFrame(st.session_state["manual_volumes"])
-    # Verwende st.data_editor (in neueren Streamlit-Versionen) zur interaktiven Bearbeitung
+    # Mit st.data_editor können die Einträge interaktiv bearbeitet werden
     vol_df = st.data_editor(vol_df, num_rows="dynamic", key="volumes_editor")
     st.table(vol_df)
     st.session_state["manual_volumes"] = vol_df.to_dict("records")
-
+    
+    # Nun: Erstelle eine Spalte "Forecast_Volumen", falls bereits Forecast-Daten vorliegen
+    if "forecast" in st.session_state:
+        # Berechne aus dem Forecast (nur für die Zukunft) das aggregierte Monatsvolumen
+        forecast_df = st.session_state["forecast"]
+        # Filtere Zeilen, die nach dem letzten historischen Datum liegen
+        last_hist_date = st.session_state["data"]["ds"].max()
+        forecast_future = forecast_df[forecast_df["ds"] > last_hist_date]
+        if not forecast_future.empty:
+            # Aggregiere nach Jahr und Monat (als Period)
+            forecast_future["Month_Year"] = forecast_future["ds"].dt.to_period("M")
+            forecast_monthly = forecast_future.groupby("Month_Year")["yhat"].sum().reset_index()
+            forecast_monthly["Month_Year"] = forecast_monthly["Month_Year"].astype(str)
+        else:
+            forecast_monthly = pd.DataFrame(columns=["Month_Year", "yhat"])
+    else:
+        forecast_monthly = pd.DataFrame(columns=["Month_Year", "yhat"])
+    
+    # Erstelle in vol_df eine Spalte, die Jahr und Monat als String (z. B. "2023-01") enthält.
+    month_map = {
+        "Januar": "01", "Februar": "02", "März": "03", "April": "04",
+        "Mai": "05", "Juni": "06", "Juli": "07", "August": "08",
+        "September": "09", "Oktober": "10", "November": "11", "Dezember": "12"
+    }
+    vol_df["Month_Year"] = vol_df["Jahr"].astype(str) + "-" + vol_df["Monat"].map(month_map)
+    
+    # Merge manuelle Eingaben mit den Forecast-Werten
+    merged_vol = pd.merge(vol_df, forecast_monthly, on="Month_Year", how="left")
+    merged_vol.rename(columns={"Volumen": "Manuelles Volumen", "yhat": "Forecast Volumen"}, inplace=True)
+    st.write("### Vergleich: Manuelle vs. Forecast Monatsvolumen")
+    st.table(merged_vol[["Monat", "Jahr", "Manuelles Volumen", "Forecast Volumen"]])
+    
 # ─────────────────────────────
 # Bereich: Forecast-Horizont (Enddatum)
 # ─────────────────────────────
 forecast_horizon = None
-if 'data' in st.session_state and st.session_state['data'] is not None:
-    last_date = st.session_state['data']['ds'].max().date()
+if "data" in st.session_state and st.session_state["data"] is not None:
+    last_date = st.session_state["data"]["ds"].max().date()
     st.sidebar.write("Letztes Datum in den historischen Daten:", last_date)
     forecast_end = st.sidebar.date_input("Enddatum für Forecast-Horizont", value=last_date + timedelta(days=30))
     forecast_horizon = (forecast_end - last_date).days
@@ -156,27 +187,27 @@ seasonality_prior_scale = st.sidebar.slider("📊 Seasonality Prior Scale", 0.01
 # ─────────────────────────────
 # Bereich: Forecast-Berechnung und Visualisierung
 # ─────────────────────────────
-if 'data' in st.session_state and st.session_state['data'] is not None and forecast_horizon > 0:
+if "data" in st.session_state and st.session_state["data"] is not None and forecast_horizon > 0:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
-            model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
+            model = train_model(st.session_state["data"], changepoint_prior_scale, seasonality_prior_scale)
             # Erstelle Future DataFrame basierend auf dem berechneten Forecast-Horizont
             future = model.make_future_dataframe(periods=forecast_horizon)
             # Zusätzliche Regressoren hinzufügen (hier simuliert anhand der letzten Werte)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
-                if col in st.session_state['data'].columns:
-                    if len(st.session_state['data'][col]) >= forecast_horizon:
-                        future[col] = st.session_state['data'][col].iloc[-forecast_horizon:].values
+                if col in st.session_state["data"].columns:
+                    if len(st.session_state["data"][col]) >= forecast_horizon:
+                        future[col] = st.session_state["data"][col].iloc[-forecast_horizon:].values
                     else:
                         future[col] = np.nan
             forecast = model.predict(future)
-            st.session_state['forecast'] = forecast
+            st.session_state["forecast"] = forecast
             st.success("✅ Forecast erfolgreich erstellt!")
             
             # Haupt-Forecast-Visualisierung (Plotly)
             st.subheader("📉 Forecast-Visualisierung")
-            fig = px.line(forecast, x='ds', y='yhat', title="🔮 Prognose")
-            fig.add_scatter(x=st.session_state['data']['ds'], y=st.session_state['data']['y'], mode='lines', name="Tatsächliche Werte")
+            fig = px.line(forecast, x="ds", y="yhat", title="🔮 Prognose")
+            fig.add_scatter(x=st.session_state["data"]["ds"], y=st.session_state["data"]["y"], mode="lines", name="Tatsächliche Werte")
             st.plotly_chart(fig)
             
             # Prophet-Komponenten-Plots (Matplotlib)
@@ -185,18 +216,18 @@ if 'data' in st.session_state and st.session_state['data'] is not None and forec
             st.pyplot(components_fig)
             
             # Performance-Metriken berechnen: Merge der historischen Daten mit Forecast-Daten anhand von 'ds'
-            historical = st.session_state['data'][['ds', 'y']]
-            merged = pd.merge(historical, forecast[['ds', 'yhat']], on='ds', how='inner')
+            historical = st.session_state["data"][["ds", "y"]]
+            merged = pd.merge(historical, forecast[["ds", "yhat"]], on="ds", how="inner")
             if merged.empty:
                 st.write("⚠️ Es gibt keine überlappenden Zeitpunkte zwischen den historischen Daten und dem Forecast. Performance-Metriken können nicht berechnet werden.")
             else:
-                mae = mean_absolute_error(merged['y'], merged['yhat'])
-                mse = mean_squared_error(merged['y'], merged['yhat'])
-                r2 = r2_score(merged['y'], merged['yhat'])
+                mae = mean_absolute_error(merged["y"], merged["yhat"])
+                mse = mean_squared_error(merged["y"], merged["yhat"])
+                r2 = r2_score(merged["y"], merged["yhat"])
                 st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
             
             # Download-Schaltfläche für die CSV-Datei
-            csv = forecast.to_csv(index=False).encode('utf-8')
+            csv = forecast.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="💾 CSV herunterladen",
                 data=csv,
