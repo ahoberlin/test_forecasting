@@ -31,8 +31,6 @@ def save_config(config):
 # Wetterdaten effizient abrufen
 def fetch_weather_data(start_date, end_date, lat, lon, api_key):
     date_range = pd.date_range(start=start_date, end=end_date)
-    weather_data = []
-    
     def fetch_single_day(date):
         url = "http://api.openweathermap.org/data/2.5/onecall/timemachine"
         timestamp = int(date.timestamp())
@@ -43,7 +41,6 @@ def fetch_weather_data(start_date, end_date, lat, lon, api_key):
             return {"ds": date, "temperature": data['current']['temp'], "humidity": data['current']['humidity']}
         except requests.exceptions.RequestException:
             return {"ds": date, "temperature": np.nan, "humidity": np.nan}
-    
     weather_data = Parallel(n_jobs=-1)(delayed(fetch_single_day)(date) for date in date_range)
     return pd.DataFrame(weather_data)
 
@@ -68,6 +65,7 @@ def train_model(data, changepoint_prior_scale, seasonality_prior_scale):
         changepoint_prior_scale=changepoint_prior_scale,
         seasonality_prior_scale=seasonality_prior_scale
     )
+    # Zusätzliche Regressoren hinzufügen, falls vorhanden
     for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
         if col in data.columns:
             model.add_regressor(col)
@@ -86,7 +84,7 @@ if uploaded_file is not None:
     if data.empty:
         st.sidebar.error("❌ Die hochgeladene Datei ist leer.")
     else:
-        # Ermittle alle Spalten der hochgeladenen Datei
+        # Spalten der hochgeladenen Datei ermitteln
         columns = list(data.columns)
         ds_col = st.sidebar.selectbox("Wähle das Datums-Feld (ds)", columns, key="ds_col")
         y_col = st.sidebar.selectbox("Wähle das Zielvariable-Feld (y)", columns, key="y_col")
@@ -102,11 +100,11 @@ if uploaded_file is not None:
             st.write(data.head())
             st.session_state['data'] = data
 
-# Forecast-Basis: Tagesbasis oder Intervallbasis
+# Forecast-Basis: Tagesbasis oder Intervallbasis auswählen
 forecast_type = st.sidebar.radio("Forecast-Basis", options=["Tagesbasis", "Intervallbasis"])
 
 if forecast_type == "Tagesbasis":
-    # Standard: als Startdatum der Tag nach dem letzten historischen Datum (sofern vorhanden)
+    # Standard-Startdatum: Tag nach dem letzten Datum der historischen Daten (falls vorhanden)
     if 'data' in st.session_state and st.session_state['data'] is not None:
         default_start = (st.session_state['data']['ds'].max() + pd.Timedelta(days=1)).date()
     else:
@@ -117,7 +115,7 @@ if forecast_type == "Tagesbasis":
     forecast_end = st.sidebar.date_input("Enddatum", value=default_end)
     freq = "D"
 else:
-    # Für Intervallbasis erfolgt eine Datum-/Uhrzeitauswahl
+    # Für Intervallbasis: Datum-/Uhrzeitauswahl
     if 'data' in st.session_state and st.session_state['data'] is not None:
         last_date = st.session_state['data']['ds'].max()
         default_start = datetime.combine((last_date + pd.Timedelta(days=1)).date(), datetime.min.time())
@@ -143,17 +141,20 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
     if st.button("🚀 Forecast starten"):
         with st.spinner("📡 Modell wird trainiert..."):
             model = train_model(st.session_state['data'], changepoint_prior_scale, seasonality_prior_scale)
-            # Erstelle einen Future DataFrame basierend auf der ausgewählten Datumsauswahl und Frequenz
+            
+            # Erstelle Future DataFrame basierend auf der ausgewählten Datumsauswahl und Frequenz
             future_dates = pd.date_range(start=forecast_start, end=forecast_end, freq=freq)
             future = pd.DataFrame({'ds': future_dates})
             periods = len(future_dates)
-            # Falls zusätzliche Regressoren vorhanden sind, diese übernehmen – simuliert anhand der letzten Werte
+            
+            # Falls zusätzliche Regressoren vorhanden sind, diese hinzufügen (hier simuliert anhand der letzten Werte)
             for col in ['temperature', 'humidity', 'traffic_intensity', 'event_count']:
                 if col in st.session_state['data'].columns:
                     if len(st.session_state['data'][col]) >= periods:
                         future[col] = st.session_state['data'][col].iloc[-periods:].values
                     else:
                         future[col] = np.nan
+                        
             forecast = model.predict(future)
             st.session_state['forecast'] = forecast
             st.success("✅ Forecast erfolgreich erstellt!")
@@ -164,14 +165,17 @@ if 'data' in st.session_state and st.session_state['data'] is not None:
             fig.add_scatter(x=st.session_state['data']['ds'], y=st.session_state['data']['y'], mode='lines', name="Tatsächliche Werte")
             st.plotly_chart(fig)
             
-            # Performance-Metriken berechnen
-            if 'y' in st.session_state['data'].columns:
-                actual = st.session_state['data']['y']
-                predicted = forecast['yhat'][:len(actual)]
-                mae = mean_absolute_error(actual, predicted)
-                mse = mean_squared_error(actual, predicted)
-                r2 = r2_score(actual, predicted)
-                st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
+            # Performance-Metriken berechnen: Filtere Forecast auf den historischen Zeitraum
+            last_date = st.session_state['data']['ds'].max()
+            hist_forecast = forecast[forecast['ds'] <= last_date]
+            if len(hist_forecast) != len(st.session_state['data']):
+                st.write("⚠️ Warnung: Unterschiedliche Anzahl historischer Datenpunkte. Die Fehlerberechnung kann abweichen.")
+            actual = st.session_state['data']['y'].reset_index(drop=True)
+            predicted = hist_forecast['yhat'].reset_index(drop=True)
+            mae = mean_absolute_error(actual, predicted)
+            mse = mean_squared_error(actual, predicted)
+            r2 = r2_score(actual, predicted)
+            st.write(f"📊 **Metriken:**\n- MAE: {mae:.2f}\n- MSE: {mse:.2f}\n- R²: {r2:.2f}")
             
             # Export-Funktion
             if st.button("💾 Export als CSV"):
