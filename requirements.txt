@@ -1,5 +1,6 @@
 streamlit
 prophet
+cmdstanpy
 matplotlib
 pandas
 numpy
